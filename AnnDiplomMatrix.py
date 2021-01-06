@@ -300,6 +300,8 @@ def text2matrixNdictFreq(path, lemma=False):
             if not y:
                 continue
             latinstem.append (y)
+            #Лемматайзер делает ВСЕ имена собственные с большой буквы
+            # 01.01.2021 необходимо вычистить латинские цифры!!!! Для аккуратности
     else:
         for x in myWordList:  
             
