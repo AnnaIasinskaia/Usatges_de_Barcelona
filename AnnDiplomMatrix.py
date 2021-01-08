@@ -120,11 +120,11 @@ class DictLatCross():
         
     def walkAlongText(self):
         start_t = time.clock()
-        for i in range(len(self.latinStem)-1):
-            if i%1000 == 0 and i > 0:
-                curr_t = time.clock()
-                t = curr_t - start_t
-                est_t = ((self.max_size-i)/self.max_size)*(t/i)
+        for i in range(self.max_size-1):
+            #if i%1000 == 0 and i > 0:
+            #   curr_t = time.clock()
+            #    t = curr_t - start_t
+            #    est_t = ((self.max_size-i)/self.max_size)*(t/i)
                 #print("Inner stage: ", est_t, 'left')
             #print(self.latinStem[i],self.latinStem[i+1])
             #print(str(i)+'/'+str(len(self.latinStem)-1))
@@ -227,6 +227,8 @@ def text2matrixNdict(path, lemma=False):
             y = F(x)
             if not y:
                 continue
+            if bool(re.search(r"^M{0,3}(CM|CD|D?C{0,3})(XC|XL|L?X{0,3})(IX|IV|V?I{0,3})$",y)):
+                continue
             latinstem.append (y)
     else:
         for x in myWordList:  
@@ -236,6 +238,8 @@ def text2matrixNdict(path, lemma=False):
             y = removeEndings(y)
             
             if not y:
+                continue
+            if bool(re.search(r"^M{0,3}(CM|CD|D?C{0,3})(XC|XL|L?X{0,3})(IX|IV|V?I{0,3})$",y)):
                 continue
             latinstem.append (y)
 
@@ -299,6 +303,8 @@ def text2matrixNdictFreq(path, lemma=False):
             y = F(x)
             if not y:
                 continue
+            if bool(re.search(r"^M{0,3}(CM|CD|D?C{0,3})(XC|XL|L?X{0,3})(IX|IV|V?I{0,3})$",y)):
+                continue
             latinstem.append (y)
             #Лемматайзер делает ВСЕ имена собственные с большой буквы
             # 01.01.2021 необходимо вычистить латинские цифры!!!! Для аккуратности
@@ -310,6 +316,8 @@ def text2matrixNdictFreq(path, lemma=False):
             y = removeEndings(y)
             
             if not y:
+                continue
+            if bool(re.search(r"^M{0,3}(CM|CD|D?C{0,3})(XC|XL|L?X{0,3})(IX|IV|V?I{0,3})$",y)):
                 continue
             latinstem.append (y)
 
