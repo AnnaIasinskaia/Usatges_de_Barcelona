@@ -1,0 +1,6 @@
+python-docx>=0.8.11
+numpy>=1.21.0
+scipy>=1.7.0
+networkx>=2.6
+matplotlib>=3.4.0
+pycollatinus>=0.1.6
