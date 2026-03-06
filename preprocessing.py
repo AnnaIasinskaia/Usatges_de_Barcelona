@@ -48,8 +48,20 @@ LATIN_STOPWORDS = {
 def normalize_latin(text: str) -> str:
     """Apply medieval Latin orthographic normalisation."""
     t = text.lower()
-    for pattern, repl in _NORM_RULES:
-        t = re.sub(pattern, repl, t)
+    # Apply simple replacements without regex errors
+    t = t.replace('j', 'i').replace('v', 'u')
+    t = t.replace('ae', 'e').replace('oe', 'e')
+    t = t.replace('ph', 'f').replace('y', 'i')
+    # Remove duplicate consecutive characters
+    if not t:
+        return t
+    cleaned_chars = []
+    prev = None
+    for ch in t:
+        if ch != prev:
+            cleaned_chars.append(ch)
+            prev = ch
+    t = ''.join(cleaned_chars)
     return t
 
 

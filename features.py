@@ -117,24 +117,29 @@ def tesserae_score(
 
 def levenshtein_distance(s1: str, s2: str) -> int:
     """Compute Levenshtein distance between two strings."""
-    if len(s1) < len(s2):
-        return levenshtein_distance(s2, s1)
-    if len(s2) == 0:
-        return len(s1)
+    try:
+        from Levenshtein import distance as lev
+        return lev(s1, s2)
+    except ImportError:
+        # Fallback to pure Python implementation
+        if len(s1) < len(s2):
+            s1, s2 = s2, s1
+        if len(s2) == 0:
+            return len(s1)
 
-    prev_row = list(range(len(s2) + 1))
-    for i, c1 in enumerate(s1):
-        curr_row = [i + 1]
-        for j, c2 in enumerate(s2):
-            cost = 0 if c1 == c2 else 1
-            curr_row.append(min(
-                curr_row[j] + 1,
-                prev_row[j + 1] + 1,
-                prev_row[j] + cost,
-            ))
-        prev_row = curr_row
+        previous_row = list(range(len(s2) + 1))
+        for i, c1 in enumerate(s1):
+            current_row = [i + 1]
+            for j, c2 in enumerate(s2):
+                cost = 0 if c1 == c2 else 1
+                current_row.append(min(
+                    current_row[j] + 1,
+                    previous_row[j + 1] + 1,
+                    previous_row[j] + cost,
+                ))
+            previous_row = current_row
 
-    return prev_row[-1]
+        return previous_row[-1]
 
 
 def soft_cosine_similarity(
