@@ -1,89 +1,54 @@
-# Usatges de Barcelona — Borrowing Detection Pipeline
+# Usatges de Barcelona — Пайплайн обнаружения заимствований
 
-NLP pipeline for detecting textual borrowings between the **Usatges de Barcelona** (XI–XII c.) and five Latin legal sources.
+NLP-пайплайн для выявления текстуальных заимствований между
+**Usatges de Barcelona** (XI–XII вв.) и пятью латинскими правовыми источниками.
 
-## Method
+---
 
-The pipeline implements a 7-step NLP workflow **without machine learning**:
+## Метод
 
-1. **Segmentation** — Usatges split by articles; sources by paragraphs (~150 words)
-2. **Preprocessing** — Medieval Latin normalization (J→I, V→U, AE→E, PH→F), enclitic splitting, lemmatization via Collatinus
-3. **Feature Extraction** — TF-IDF vectors with n-grams (1–3), filtering by DF thresholds
-4. **Candidate Linking** — Cosine similarity between all (usatge, source) pairs
-5. **Scoring** — Combined BorrowScore: TF-IDF cosine (α) + Tesserae IDF-weighted overlap (β) + Soft cosine with Levenshtein (γ)
-6. **Alignment** — Semantic Smith-Waterman local alignment for matched pairs
-7. **Graph Construction** — Directed weighted graph (source → usatge), exported as GEXF for Gephi
+Пайплайн реализует 7-шаговый NLP-воркфлоу **без машинного обучения**:
 
-## Setup
+1. **Сегментация** — Usatges делятся по статьям (по маркерам издания Бастарда);
+   источники — по структурным элементам документа (главы, дигесты, капитулы)
+2. **Предобработка** — нормализация средневековой латыни (J→I, V→U, AE→E, PH→F),
+   разбиение энклитик, лемматизация через Collatinus (или правиловой стеммер)
+3. **Извлечение признаков** — TF-IDF векторы с н-граммами (1–3),
+   фильтрация по порогам document frequency
+4. **Поиск кандидатов** — косинусное сходство по всем парам (usatge, сегмент источника)
+5. **Скоринг** — комбинированный BorrowScore:
+   TF-IDF косинус (α) + Tesserae IDF-взвешенное пересечение (β) + мягкий косинус с Левенштейном (γ)
+6. **Выравнивание** — семантическое локальное выравнивание Smith–Waterman для пар-кандидатов
+7. **Граф** — взвешенный ориентированный граф (источник → обычай),
+   экспорт в GEXF для Gephi и PNG для быстрого просмотра
 
-```bash
-pip install -r requirements.txt
-```
+---
 
-> **Note:** `pycollatinus` requires compilation. If installation fails, the pipeline falls back to a rule-based Latin stemmer. Use `--no-collatinus` flag.
+## Источники
 
-## Data
+| Ключ в конфиге | Файл | Русское название |
+|---|---|---|
+| `Evangelium` | `Evangelium.docx` | Евангелие (Вульгата, пер. блаж. Иеронима, 382–405) |
+| `CorpusJuris` | `Corpus Juris Civilis.docx` | Свод гражданского права Юстиниана |
+| `Etymologiae` | `Isidori Hispalensis Episcopi Etymologiarum.docx` | Этимологии Исидора Севильского |
+| `LexVisigoth` | `Lex visigothorum.docx` | Вестготская правда (Liber Iudiciorum) |
+| `ExceptPetri` | `Exeptionis Legum Romanorum Petri.docx` | Извлечения из римских законов Петра |
 
-Place source texts as `.docx` files in the `data/` directory:
-
+Файлы источников размещаются в директории `data/`:
 ```
 data/
-├── Latin.txt                                          # Usatges (with article markers)
-├── Latin.docx                                         # Usatges (alternative)
+├── Bastardas Usatges de Barcelona_djvu.txt # Usatges (издание Бастарда, основной)
 ├── Evangelium.docx
 ├── Corpus Juris Civilis.docx
 ├── Isidori Hispalensis Episcopi Etymologiarum.docx
 ├── Lex visigothorum.docx
 └── Exeptionis Legum Romanorum Petri.docx
 ```
+---
 
-## Usage
+## Установка и запуск
 
 ```bash
-# Full pipeline with Collatinus
+pip install -r requirements.txt
 python pipeline.py
-
-# With fallback stemmer
-python pipeline.py --no-collatinus
-
-# Custom threshold
-python pipeline.py --threshold 0.15
 ```
-
-## Output
-
-Results are saved to `output/`:
-
-| File | Description |
-|------|-------------|
-| `borrowing_graph.gexf` | Graph for Gephi visualization |
-| `borrowing_graph.png`  | Quick visualization (matplotlib) |
-| `borrowing_pairs.csv`  | All detected borrowings with scores |
-
-## Configuration
-
-Edit `config.py` to adjust:
-
-- **Scoring weights**: `ALPHA`, `BETA`, `GAMMA` (must sum to 1.0)
-- **Thresholds**: `TFIDF_COSINE_THRESHOLD`, `FINAL_THRESHOLD`
-- **N-gram range**: `NGRAM_RANGE`
-- **Document frequency filters**: `MAX_DF`, `MIN_DF`
-
-## Architecture
-
-```
-pipeline.py          ← main entry point
-├── config.py        ← all parameters
-├── preprocessing.py ← normalization, tokenization, lemmatization, segmentation
-├── features.py      ← TF-IDF, Tesserae scoring, soft cosine, IDF
-├── alignment.py     ← Smith-Waterman local alignment
-└── graph_builder.py ← NetworkX graph construction & export
-```
-
-## References
-
-- Sidorov G. et al. *Soft Cosine Measure*. Computación y Sistemas, 2014.
-- Manning C.D. et al. *Introduction to Information Retrieval*. Cambridge, 2008.
-- Büchler M. et al. *TRACER* — text reuse detection framework.
-- Coffee N. et al. *Tesserae* — intertextuality detection for classical texts.
-- Smith D.A. *Passim* — alignment-based text reuse detection.
