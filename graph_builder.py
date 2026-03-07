@@ -1,5 +1,6 @@
 """
-Step 7: Построение и анализ графа заимствований.
+Шаг 7: Построение и визуализация графа заимствований.
+Все подписи, заголовки и легенды — на русском языке.
 """
 from pathlib import Path
 from typing import List, Dict, Tuple, Optional
@@ -17,7 +18,18 @@ try:
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+    import matplotlib.font_manager as fm
     import numpy as np
+
+    # Шрифт с поддержкой кириллицы
+    for family in ["DejaVu Sans", "Liberation Sans", "Arial", "sans-serif"]:
+        try:
+            fm.findfont(family, fallback_to_default=False)
+            plt.rcParams["font.family"] = family
+            break
+        except Exception:
+            continue
+
     plt.rcParams.update({
         "figure.figsize": (8.27, 11.69),
         "figure.dpi": 300,
@@ -33,20 +45,50 @@ except ImportError:
     _PLT_AVAILABLE = False
 
 
+# ---- Русские названия (импортируем из config или используем встроенные) ----
+try:
+    from config import SOURCE_NAMES_RU, SOURCE_NAMES_RU_SHORT
+except ImportError:
+    SOURCE_NAMES_RU = {}
+    SOURCE_NAMES_RU_SHORT = {}
+
+_DEFAULT_RU = {
+    "Evangelium":   "Евангелие",
+    "CorpusJuris":  "Свод Юстиниана",
+    "Etymologiae":  "Этимологии Исидора",
+    "LexVisigoth":  "Вестготская правда",
+    "ExceptPetri":  "Извлечения Петра",
+    "Usatges":      "Обычаи Барселоны",
+}
+
+
+def _ru(key: str) -> str:
+    """Получить русское название источника (короткое, однострочное)."""
+    return SOURCE_NAMES_RU_SHORT.get(key, _DEFAULT_RU.get(key, key))
+
+
+def _ru_multi(key: str) -> str:
+    """Получить русское название с переносами (для осей графиков)."""
+    return SOURCE_NAMES_RU.get(key, _DEFAULT_RU.get(key, key))
+
+
 def _extract_sort_key(node_id: str) -> int:
-    """Safely extract a numeric sort key from node ID like Us_16, Us_16-17, etc."""
     parts = node_id.split("_", 1)
     if len(parts) < 2:
         return 9999
-    num_part = parts[1]
-    # Extract first number from potentially complex IDs
-    m = re.search(r'\d+', num_part)
-    if m:
-        try:
-            return int(m.group())
-        except ValueError:
-            return 9999
-    return 9999
+    m = re.search(r'\d+', parts[1])
+    return int(m.group()) if m else 9999
+
+
+# ---- Цвета ----
+_SOURCE_COLORS = {
+    "CorpusJuris": "#d62728",
+    "Evangelium":  "#1f77b4",
+    "Etymologiae": "#2ca02c",
+    "LexVisigoth": "#9467bd",
+    "ExceptPetri": "#ff7f0e",
+    "Usatges":     "#17becf",
+}
 
 
 class BorrowingGraph:
@@ -80,13 +122,11 @@ class BorrowingGraph:
                 node_type="usatge",
                 text_snippet=(usatge_text[:200] if usatge_text else ""),
             )
-
         align_str = ""
         if alignment_a and alignment_b:
             align_str = " | ".join(
                 f"{a} ~ {b}" for a, b in zip(alignment_a[:20], alignment_b[:20])
             )
-
         self.G.add_edge(
             source_id,
             target_id,
@@ -131,6 +171,67 @@ class BorrowingGraph:
                     u_text,
                 ])
 
+    def export_borrowing_table(self, path: Path, usatge_texts=None):
+        """Экспорт сводной таблицы заимствований в Markdown."""
+        from collections import defaultdict
+
+        usatge_data = defaultdict(lambda: defaultdict(lambda: {"count": 0, "total": 0.0}))
+        for u, v, d in self.G.edges(data=True):
+            grp = self.G.nodes[u].get("text_group", "?")
+            score = d.get("weight", 0.0)
+            usatge_data[v][grp]["count"] += 1
+            usatge_data[v][grp]["total"] += score
+
+        sources = ["CorpusJuris", "LexVisigoth", "ExceptPetri", "Evangelium", "Etymologiae"]
+        sorted_us = sorted(usatge_data.keys(), key=_extract_sort_key)
+
+        lines = []
+        lines.append("# Таблица заимствований: Обычаи Барселоны ← Латинские источники\n")
+        lines.append(f"**Всего пар:** {self.G.number_of_edges()}")
+        lines.append(f"**Затронуто обычаев:** {len(usatge_data)} из 145\n")
+
+        # Сводка
+        lines.append("## Сводка по источникам\n")
+        lines.append("| Источник | Число связей | Суммарный балл |")
+        lines.append("|---|---:|---:|")
+        for src in sources:
+            cnt = sum(1 for u, v, d in self.G.edges(data=True)
+                      if self.G.nodes[u].get("text_group") == src)
+            total = sum(d.get("weight", 0) for u, v, d in self.G.edges(data=True)
+                        if self.G.nodes[u].get("text_group") == src)
+            lines.append(f"| {_ru(src)} | {cnt} | {total:.2f} |")
+
+        # Детальная таблица
+        lines.append("\n## Детальная таблица\n")
+        hdr = "| Обычай |"
+        sep = "|---|"
+        for src in sources:
+            short = _ru(src).split()[0]
+            hdr += f" {short} |"
+            sep += "---:|"
+        hdr += " Итого |"
+        sep += "---:|"
+        lines.append(hdr)
+        lines.append(sep)
+
+        for uid in sorted_us:
+            r = f"| **{uid}** |"
+            total = 0
+            for src in sources:
+                d = usatge_data[uid].get(src)
+                if d and d["count"] > 0:
+                    r += f" {d['count']} ({d['total']:.2f}) |"
+                    total += d["count"]
+                else:
+                    r += " — |"
+            r += f" {total} |"
+            lines.append(r)
+
+        lines.append("\n---\n*Формат: кол-во связей (суммарный балл)*")
+
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines))
+
     def get_stats(self) -> Dict:
         usatge_nodes = [
             n for n, d in self.G.nodes(data=True) if d.get("node_type") == "usatge"
@@ -172,15 +273,19 @@ class BorrowingGraph:
         lines.append("=" * 70)
         lines.append("РЕЗУЛЬТАТЫ ПАЙПЛАЙНА")
         lines.append("=" * 70)
-        lines.append(f"  Узлов всего: {stats['total_nodes']}")
-        lines.append(f"  Рёбер (заимствований): {stats['total_edges']}")
-        lines.append(f"  Узлов-Usatges: {stats['usatge_nodes']}")
-        lines.append(f"  Узлов-источников: {stats['source_nodes']}")
-        lines.append(f"  Рёбер по источникам: {stats.get('edges_by_source', {})}")
-        lines.append(f"  Суммарный вес по источникам: {stats.get('total_weight_by_source', {})}")
+        lines.append(f"  Узлов всего:            {stats['total_nodes']}")
+        lines.append(f"  Рёбер (заимствований):  {stats['total_edges']}")
+        lines.append(f"  Узлов-обычаев:          {stats['usatge_nodes']}")
+        lines.append(f"  Узлов-источников:       {stats['source_nodes']}")
+
+        edges_ru = {_ru(k): v for k, v in stats.get("edges_by_source", {}).items()}
+        weight_ru = {_ru(k): v for k, v in stats.get("total_weight_by_source", {}).items()}
+        lines.append(f"  Рёбер по источникам:    {edges_ru}")
+        lines.append(f"  Суммарный вес:          {weight_ru}")
+
         if "most_dependent_usatges" in stats:
             lines.append("")
-            lines.append("  Наиболее зависимые Usatges (по числу входящих заимствований):")
+            lines.append("  Обычаи с наибольшим числом заимствований:")
             lines.append("  " + "-" * 66)
             for name, deg in stats["most_dependent_usatges"]:
                 snippet = ""
@@ -192,7 +297,9 @@ class BorrowingGraph:
                     lines.append(f"      Текст: {snippet}")
         return "\n".join(lines)
 
-    # ---- VISUALIZATIONS ----
+    # ================================================================
+    #  ВИЗУАЛИЗАЦИИ (полностью русифицированные)
+    # ================================================================
 
     def visualize_heatmap(self, output_path: Path, usatge_texts=None):
         if not _PLT_AVAILABLE:
@@ -208,6 +315,7 @@ class BorrowingGraph:
         )
         if not usatge_nodes or not source_groups:
             return
+
         matrix = np.zeros((len(usatge_nodes), len(source_groups)))
         u_idx = {n: i for i, n in enumerate(usatge_nodes)}
         g_idx = {g: i for i, g in enumerate(source_groups)}
@@ -215,12 +323,17 @@ class BorrowingGraph:
             grp = self.G.nodes[src].get("text_group", "?")
             if tgt in u_idx and grp in g_idx:
                 matrix[u_idx[tgt], g_idx[grp]] += data.get("weight", 0.0)
+
         fig, ax = plt.subplots()
         im = ax.imshow(matrix, aspect="auto", cmap="YlOrRd", interpolation="nearest")
+
+        # Русские подписи осей
+        ru_groups = [_ru(g) for g in source_groups]
         ax.set_xticks(range(len(source_groups)))
-        ax.set_xticklabels(source_groups, rotation=45, ha="right", fontsize=12, fontweight="bold")
+        ax.set_xticklabels(ru_groups, rotation=45, ha="right", fontsize=12, fontweight="bold")
         ax.set_yticks(range(len(usatge_nodes)))
         ax.set_yticklabels(usatge_nodes, fontsize=8)
+
         max_val = matrix.max() if matrix.size else 0
         for i in range(matrix.shape[0]):
             for j in range(matrix.shape[1]):
@@ -228,10 +341,12 @@ class BorrowingGraph:
                 if val > 0:
                     color = "white" if max_val and val > max_val * 0.6 else "black"
                     ax.text(j, i, f"{val:.2f}", ha="center", va="center", fontsize=7, color=color)
-        plt.colorbar(im, ax=ax, label="BorrowScore", shrink=0.85)
-        ax.set_title('Usatges de Barcelona ← Latin Sources', fontsize=14, fontweight="bold", pad=14)
+
+        plt.colorbar(im, ax=ax, label="Балл заимствования", shrink=0.85)
+        ax.set_title("Обычаи Барселоны ← Латинские источники",
+                      fontsize=14, fontweight="bold", pad=14)
         ax.set_xlabel("Источник")
-        ax.set_ylabel("Usatge")
+        ax.set_ylabel("Обычай")
         plt.tight_layout(pad=0.8)
         plt.savefig(str(output_path), dpi=300, bbox_inches="tight")
         plt.close(fig)
@@ -242,11 +357,6 @@ class BorrowingGraph:
         source_groups = {
             self.G.nodes[u].get("text_group", "?")
             for u, _, _ in self.G.edges(data=True)
-        }
-        source_colors = {
-            "CorpusJuris": "#d62728", "Evangelium": "#1f77b4",
-            "Etymologiae": "#2ca02c", "LexVisigoth": "#9467bd",
-            "ExceptPetri": "#ff7f0e",
         }
         for grp in sorted(source_groups):
             edges = [(u, v, d) for u, v, d in self.G.edges(data=True)
@@ -260,13 +370,15 @@ class BorrowingGraph:
                 sub.add_edge(u, v, **d)
             us_nodes = [n for n, d in sub.nodes(data=True) if d.get("node_type") == "usatge"]
             src_nodes = [n for n, d in sub.nodes(data=True) if d.get("node_type") == "source"]
+
             pos = {}
             for i, n in enumerate(sorted(src_nodes)):
                 pos[n] = (0.0, -i)
             for i, n in enumerate(sorted(us_nodes, key=_extract_sort_key)):
                 pos[n] = (3.0, -i * (max(len(src_nodes), 1) / max(len(us_nodes), 1)))
+
             fig, ax = plt.subplots(figsize=(8.27, 11.69))
-            color = source_colors.get(grp, "#7f8c8d")
+            color = _SOURCE_COLORS.get(grp, "#7f8c8d")
             nx.draw_networkx_nodes(sub, pos, nodelist=src_nodes, node_color=color,
                                    node_size=40, alpha=0.6, ax=ax)
             nx.draw_networkx_nodes(sub, pos, nodelist=us_nodes, node_color="#17becf",
@@ -277,47 +389,104 @@ class BorrowingGraph:
             labels = {n: n for n in us_nodes}
             nx.draw_networkx_labels(sub, pos, labels, font_size=8, font_color="#2c3e50",
                                     ax=ax, horizontalalignment="left")
-            ax.set_title(f"{grp} → Usatges ({sub.number_of_edges()} borrowings, {len(us_nodes)} articles)",
-                         fontsize=15, fontweight="bold")
+
+            ru_name = _ru(grp)
+            ax.set_title(
+                f"{ru_name} → Обычаи ({sub.number_of_edges()} связей, {len(us_nodes)} статей)",
+                fontsize=15, fontweight="bold",
+            )
             ax.axis("off")
             plt.tight_layout(pad=0.8)
             plt.savefig(str(output_dir / f"graph_{grp}.png"), dpi=300, bbox_inches="tight")
             plt.close(fig)
 
     def visualize_top_borrowings(self, output_path: Path, top_n=30, usatge_texts=None):
+        """
+        Граф топ-N заимствований.
+        Раскладка: источники СЛЕВА, обычаи СПРАВА (bipartite layout).
+        Исключает ложное впечатление цепочек заимствований.
+        """
         if not _PLT_AVAILABLE:
             return
-        all_edges = sorted(self.G.edges(data=True), key=lambda x: x[2].get("weight", 0), reverse=True)
+        all_edges = sorted(self.G.edges(data=True),
+                           key=lambda x: x[2].get("weight", 0), reverse=True)
         top_edges = all_edges[:top_n]
         if not top_edges:
             return
+
         sub = nx.DiGraph()
         for u, v, d in top_edges:
             grp = self.G.nodes[u].get("text_group", "?")
             sub.add_node(u, text_group=grp, node_type="source")
             sub.add_node(v, text_group="Usatges", node_type="usatge")
             sub.add_edge(u, v, **d)
-        source_colors = {
-            "CorpusJuris": "#d62728", "Evangelium": "#1f77b4",
-            "Etymologiae": "#2ca02c", "LexVisigoth": "#9467bd",
-            "ExceptPetri": "#ff7f0e", "Usatges": "#17becf",
-        }
-        node_colors = [source_colors.get(sub.nodes[n].get("text_group", ""), "#95a5a6") for n in sub.nodes()]
-        node_sizes = [260 if sub.nodes[n].get("node_type") == "usatge" else 70 for n in sub.nodes()]
-        fig, ax = plt.subplots(figsize=(8.0, 8.0))
-        pos = nx.kamada_kawai_layout(sub, scale=1.8)
-        weights = [d.get("weight", 0.1) * 5 for _, _, d in sub.edges(data=True)]
-        edge_colors = [source_colors.get(sub.nodes[u].get("text_group", ""), "#7f8c8d") for u, v in sub.edges()]
-        nx.draw_networkx_nodes(sub, pos, node_color=node_colors, node_size=node_sizes, alpha=0.9, ax=ax)
-        nx.draw_networkx_edges(sub, pos, width=weights, alpha=0.4, edge_color=edge_colors,
-                               arrows=True, arrowsize=10, ax=ax, connectionstyle="arc3,rad=0.08")
-        labels = {n: n for n in sub.nodes() if sub.nodes[n].get("node_type") == "usatge"}
-        nx.draw_networkx_labels(sub, pos, labels, font_size=9, font_weight="bold", font_color="#2c3e50", ax=ax)
+
+        # Bipartite layout: sources on left, usatges on right
+        src_nodes = sorted(
+            [n for n in sub.nodes() if sub.nodes[n].get("node_type") == "source"],
+        )
+        us_nodes = sorted(
+            [n for n in sub.nodes() if sub.nodes[n].get("node_type") == "usatge"],
+            key=_extract_sort_key,
+        )
+
+        pos = {}
+        n_src = len(src_nodes)
+        n_us = len(us_nodes)
+
+        # Group source nodes by their text_group for visual clustering
+        src_by_group = {}
+        for n in src_nodes:
+            grp = sub.nodes[n].get("text_group", "?")
+            src_by_group.setdefault(grp, []).append(n)
+
+        y = 0
+        for grp in sorted(src_by_group.keys()):
+            for n in src_by_group[grp]:
+                pos[n] = (0.0, -y)
+                y += 1
+            y += 0.5  # gap between groups
+
+        total_src_height = y
+        for i, n in enumerate(us_nodes):
+            pos[n] = (4.0, -i * (total_src_height / max(n_us, 1)))
+
+        fig, ax = plt.subplots(figsize=(10.0, 12.0))
+
+        node_colors = [_SOURCE_COLORS.get(sub.nodes[n].get("text_group", ""), "#95a5a6")
+                        for n in sub.nodes()]
+        node_sizes = [220 if sub.nodes[n].get("node_type") == "usatge" else 50
+                      for n in sub.nodes()]
+
+        nx.draw_networkx_nodes(sub, pos, node_color=node_colors, node_size=node_sizes,
+                                alpha=0.9, ax=ax)
+
+        weights = [d.get("weight", 0.1) * 4 for _, _, d in sub.edges(data=True)]
+        edge_colors = [_SOURCE_COLORS.get(sub.nodes[u].get("text_group", ""), "#7f8c8d")
+                        for u, v in sub.edges()]
+
+        nx.draw_networkx_edges(sub, pos, width=weights, alpha=0.4,
+                                edge_color=edge_colors,
+                                arrows=True, arrowsize=10, ax=ax,
+                                connectionstyle="arc3,rad=0.05")
+
+        # Labels: only usatge nodes on the right
+        us_labels = {n: n for n in us_nodes}
+        nx.draw_networkx_labels(sub, pos, us_labels, font_size=9, font_weight="bold",
+                                font_color="#2c3e50", ax=ax,
+                                horizontalalignment="left")
+
         from matplotlib.patches import Patch
-        legend_elems = [Patch(facecolor=c, label=g) for g, c in source_colors.items()
-                        if g in {sub.nodes[n].get("text_group", "") for n in sub.nodes()}]
+        legend_elems = [
+            Patch(facecolor=c, label=_ru(g))
+            for g, c in _SOURCE_COLORS.items()
+            if g in {sub.nodes[n].get("text_group", "") for n in sub.nodes()}
+        ]
         ax.legend(handles=legend_elems, loc="upper left", fontsize=10, framealpha=0.9)
-        ax.set_title(f'Top-{top_n} borrowings: Usatges ← Latin sources', fontsize=15, fontweight="bold")
+        ax.set_title(
+            f"Топ-{top_n} заимствований: Обычаи Барселоны ← Латинские источники",
+            fontsize=15, fontweight="bold",
+        )
         ax.axis("off")
         plt.tight_layout(pad=0.8)
         plt.savefig(str(output_path), dpi=300, bbox_inches="tight")
@@ -326,34 +495,38 @@ class BorrowingGraph:
     def visualize_bar_chart(self, output_path: Path, usatge_texts=None):
         if not _PLT_AVAILABLE:
             return
-        source_colors = {
-            "CorpusJuris": "#d62728", "Evangelium": "#1f77b4",
-            "Etymologiae": "#2ca02c", "LexVisigoth": "#9467bd",
-            "ExceptPetri": "#ff7f0e",
-        }
+
         usatge_source_weight = {}
         for u, v, d in self.G.edges(data=True):
             grp = self.G.nodes[u].get("text_group", "?")
             if v not in usatge_source_weight:
                 usatge_source_weight[v] = {}
-            usatge_source_weight[v][grp] = usatge_source_weight[v].get(grp, 0.0) + d.get("weight", 0.0)
+            usatge_source_weight[v][grp] = (
+                usatge_source_weight[v].get(grp, 0.0) + d.get("weight", 0.0)
+            )
         if not usatge_source_weight:
             return
+
         usatge_ids = sorted(usatge_source_weight.keys(), key=_extract_sort_key)
         groups = ["CorpusJuris", "LexVisigoth", "ExceptPetri", "Evangelium", "Etymologiae"]
+
         fig, ax = plt.subplots(figsize=(8.27, 11.69))
         y_pos = np.arange(len(usatge_ids))
         left = np.zeros(len(usatge_ids))
+
         for grp in groups:
             vals = [usatge_source_weight[uid].get(grp, 0.0) for uid in usatge_ids]
             ax.barh(y_pos, vals, left=left, height=0.7,
-                    color=source_colors.get(grp, "#95a5a6"), label=grp, alpha=0.9)
+                    color=_SOURCE_COLORS.get(grp, "#95a5a6"),
+                    label=_ru(grp), alpha=0.9)
             left += np.array(vals)
+
         ax.set_yticks(y_pos)
         ax.set_yticklabels(usatge_ids, fontsize=9)
         ax.invert_yaxis()
-        ax.set_xlabel("BorrowScore")
-        ax.set_title("Borrowing intensity per Usatge", fontsize=15, fontweight="bold")
+        ax.set_xlabel("Балл заимствования (BorrowScore)")
+        ax.set_title("Интенсивность заимствований по обычаям",
+                      fontsize=15, fontweight="bold")
         ax.legend(loc="lower right", fontsize=10, framealpha=0.9)
         ax.grid(axis="x", alpha=0.3)
         plt.tight_layout(pad=0.8)

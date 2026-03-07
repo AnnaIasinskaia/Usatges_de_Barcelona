@@ -248,6 +248,10 @@ def run_pipeline(
                      source_texts=source_raw_texts)
     log.info(f"  Results CSV: {RESULTS_CSV}")
 
+    table_path = OUTPUT_DIR / "borrowing_table.md"
+    graph.export_borrowing_table(table_path, usatge_texts=usatge_raw_texts)
+    log.info(f"  Borrowing table: {table_path}")
+
     heatmap_path = OUTPUT_DIR / "heatmap_borrowings.png"
     graph.visualize_heatmap(heatmap_path, usatge_texts=usatge_raw_texts)
     log.info(f"  Heatmap: {heatmap_path}")
