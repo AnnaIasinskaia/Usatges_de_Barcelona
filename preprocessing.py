@@ -440,8 +440,8 @@ def segment_usatges(text: str) -> List[Tuple[str, str]]:
     """
     # 1. Основные (chapters 1-125)
     segments = segment_usatges_bastardas(text)
-    for s in segments:
-        print(s[0])
+    #for s in segments:
+    #    print(s[0])
     main_count = len(segments)
 
     # 2. Адвентивные (appendices A-D)
