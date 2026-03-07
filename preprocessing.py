@@ -283,7 +283,8 @@ def segment_usatges_bastardas(text: str) -> List[Tuple[str, str]]:
         re.MULTILINE,
     )
 
-    anteqvam_pos = text.find('ANTEQVAM VSATICI')
+    first_chapter = re.search(r'^\s*1\s*\(us\.\s*1', text, re.MULTILINE)
+    anteqvam_pos = first_chapter.start() if first_chapter else 0
     apendix_pos = text.find('APENDIX A', len(text) // 2)
     if anteqvam_pos < 0:
         anteqvam_pos = 0
