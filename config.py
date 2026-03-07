@@ -9,8 +9,11 @@ OUTPUT_DIR = Path("output")
 OUTPUT_DIR.mkdir(exist_ok=True)
 
 # Source texts: key = short name, value = filename in DATA_DIR
-USATGES_FILE = DATA_DIR / "Latin.docx"  # Usatges de Barcelona
+#USATGES_FILE = DATA_DIR / "Latin.docx"  # Usatges de Barcelona
+USATGES_TXT = DATA_DIR / "Bastardas Usatges de Barcelona_djvu.txt"
 
+# Параметры для фильтрации
+MIN_SEGMENT_LENGTH = 100  # Минимум символов в обычае
 SOURCES = {
     "Evangelium":    DATA_DIR / "Evangelium.docx",
     "CorpusJuris":  DATA_DIR / "Corpus Juris Civilis.docx",
@@ -20,11 +23,11 @@ SOURCES = {
 }
 
 # If you have .txt version of Usatges with article markers like "1 (UB. 1-2)"
-USATGES_TXT = DATA_DIR / "Latin.txt"
+#USATGES_TXT = DATA_DIR / "Latin.txt"
 
 # --- Preprocessing ---
 MIN_LEMMA_LENGTH = 3
-USE_COLLATINUS = True  # set False to use fallback stemmer
+USE_COLLATINUS = False  # set False to use fallback stemmer
 
 # --- Feature extraction ---
 NGRAM_RANGE = (1, 3)          # unigrams + bigrams + trigrams

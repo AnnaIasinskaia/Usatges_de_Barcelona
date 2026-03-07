@@ -2,8 +2,11 @@
 Step 6: Smith-Waterman local text alignment.
 """
 import numpy as np
+import logging
 from typing import List, Tuple, Optional
 from features import levenshtein_distance
+
+log = logging.getLogger(__name__)
 
 
 def smith_waterman(
@@ -43,10 +46,25 @@ def smith_waterman(
             if seq_a[i-1] == seq_b[j-1]:
                 diag = H[i-1, j-1] + match_score
             else:
-                lev = levenshtein_distance(seq_a[i-1], seq_b[j-1])
+                a = seq_a[i-1]
+                b = seq_b[j-1]
+                # Ensure strings
+                if not isinstance(a, str):
+                    a = str(a)
+                if not isinstance(b, str):
+                    b = str(b)
+                try:
+                    lev = levenshtein_distance(a, b)
+                except Exception as e:
+                    log.warning(
+                        f"Levenshtein error for i={i}, j={j}, "
+                        f"a='{a}', b='{b}': {e}"
+                    )
+                    # fallback: treat as full mismatch
+                    lev = lev_bonus_threshold + 1  # ensure mismatch
                 if lev <= lev_bonus_threshold:
                     # Partial match: reduced penalty
-                    max_len = max(len(seq_a[i-1]), len(seq_b[j-1]))
+                    max_len = max(len(a), len(b))
                     bonus = match_score * (1.0 - lev / max_len) if max_len > 0 else 0
                     diag = H[i-1, j-1] + bonus
                 else:

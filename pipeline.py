@@ -56,10 +56,8 @@ def run_pipeline(
 
     if USATGES_TXT.exists():
         usatges_raw = load_txt(USATGES_TXT)
-    elif USATGES_FILE.exists():
-        usatges_raw = load_docx(USATGES_FILE)
     else:
-        log.error(f"Usatges file not found at {USATGES_TXT} or {USATGES_FILE}")
+        log.error(f"Usatges file not found at {USATGES_TXT}")
         sys.exit(1)
 
     usatges_segments = segment_usatges(usatges_raw)
