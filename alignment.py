@@ -3,7 +3,7 @@ Step 6: Smith-Waterman local text alignment.
 """
 import numpy as np
 import logging
-from typing import List, Tuple, Optional
+from typing import List, Tuple
 from features import levenshtein_distance
 
 log = logging.getLogger(__name__)
@@ -16,55 +16,52 @@ def smith_waterman(
     mismatch_score: int = -1,
     gap_penalty: int = -1,
     lev_bonus_threshold: int = 2,
+    max_seq_len: int = 300,
 ) -> Tuple[List[str], List[str], float]:
     """
     Semantic Smith-Waterman alignment for lemma sequences.
-
-    Mismatches are softened if Levenshtein distance between lemmas
-    is below lev_bonus_threshold (partial morphological match).
-
-    Returns:
-        aligned_a: aligned tokens from seq_a (with '-' for gaps)
-        aligned_b: aligned tokens from seq_b (with '-' for gaps)
-        score: alignment score
+    Sequences are truncated to max_seq_len to prevent memory issues.
     """
+    if not seq_a or not seq_b:
+        return [], [], 0.0
+
+    # Ensure all elements are strings
+    seq_a = [str(x) if not isinstance(x, str) else x for x in seq_a if x]
+    seq_b = [str(x) if not isinstance(x, str) else x for x in seq_b if x]
+
+    # Safety truncation
+    seq_a = seq_a[:max_seq_len]
+    seq_b = seq_b[:max_seq_len]
+
     m, n = len(seq_a), len(seq_b)
     if m == 0 or n == 0:
         return [], [], 0.0
 
-    # Scoring matrix
-    H = np.zeros((m + 1, n + 1))
-    traceback = np.zeros((m + 1, n + 1), dtype=int)
-    # 0=stop, 1=diag, 2=up, 3=left
+    try:
+        H = np.zeros((m + 1, n + 1), dtype=np.float32)
+        traceback = np.zeros((m + 1, n + 1), dtype=np.int8)
+    except MemoryError:
+        log.warning(f"Smith-Waterman: MemoryError for sequences of length {m} x {n}")
+        return [], [], 0.0
 
-    max_score = 0
+    max_score = 0.0
     max_pos = (0, 0)
 
     for i in range(1, m + 1):
         for j in range(1, n + 1):
-            # Match/mismatch score
-            if seq_a[i-1] == seq_b[j-1]:
+            a_tok = seq_a[i-1]
+            b_tok = seq_b[j-1]
+
+            if a_tok == b_tok:
                 diag = H[i-1, j-1] + match_score
             else:
-                a = seq_a[i-1]
-                b = seq_b[j-1]
-                # Ensure strings
-                if not isinstance(a, str):
-                    a = str(a)
-                if not isinstance(b, str):
-                    b = str(b)
                 try:
-                    lev = levenshtein_distance(a, b)
-                except Exception as e:
-                    log.warning(
-                        f"Levenshtein error for i={i}, j={j}, "
-                        f"a='{a}', b='{b}': {e}"
-                    )
-                    # fallback: treat as full mismatch
-                    lev = lev_bonus_threshold + 1  # ensure mismatch
+                    lev = levenshtein_distance(a_tok, b_tok)
+                except Exception:
+                    lev = lev_bonus_threshold + 1
+
                 if lev <= lev_bonus_threshold:
-                    # Partial match: reduced penalty
-                    max_len = max(len(a), len(b))
+                    max_len = max(len(a_tok), len(b_tok))
                     bonus = match_score * (1.0 - lev / max_len) if max_len > 0 else 0
                     diag = H[i-1, j-1] + bonus
                 else:
@@ -73,7 +70,7 @@ def smith_waterman(
             up = H[i-1, j] + gap_penalty
             left = H[i, j-1] + gap_penalty
 
-            best = max(0, diag, up, left)
+            best = max(0.0, diag, up, left)
             H[i, j] = best
 
             if best == 0:
@@ -89,7 +86,6 @@ def smith_waterman(
                 max_score = best
                 max_pos = (i, j)
 
-    # Traceback
     aligned_a, aligned_b = [], []
     i, j = max_pos
     while i > 0 and j > 0 and H[i, j] > 0:

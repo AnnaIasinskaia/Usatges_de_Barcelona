@@ -22,16 +22,36 @@ _REGISTRY = {
 }
 
 
-def segment_source(text, source_name, max_segment_words=150):
+def segment_source(text, source_name, cfg=None):
     """
     Segment a source text. Dispatches by source_name.
+
+    Args:
+        text: raw text string
+        source_name: key from config SOURCES dict
+        cfg: optional dict or int.
+             - If dict: extracts max_segment_words from it
+             - If int: used directly as max_segment_words
+             - If None: defaults to 150
+
     Raises TypeError on bad segment types (no silent warnings).
     """
+    # Normalize cfg -> max_segment_words (int)
+    if cfg is None:
+        max_words = 150
+    elif isinstance(cfg, dict):
+        max_words = cfg.get("max_segment_words", 150)
+    elif isinstance(cfg, (int, float)):
+        max_words = int(cfg)
+    else:
+        max_words = 150
+
     segmenter = _REGISTRY.get(source_name, None)
     if segmenter is not None:
-        segments = segmenter(text, source_name, max_segment_words)
+        segments = segmenter(text, source_name, max_words)
     else:
-        segments = segment_default(text, source_name, max_segment_words)
+        segments = segment_default(text, source_name, max_words)
+
     # Final strict validation
     segments = validate_segments(segments, source_name)
     return segments

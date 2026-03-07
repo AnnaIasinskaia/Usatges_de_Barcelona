@@ -3,17 +3,12 @@ Configuration for the Usatges de Barcelona borrowing detection pipeline.
 """
 from pathlib import Path
 
-# --- Paths ---
 DATA_DIR = Path("data")
 OUTPUT_DIR = Path("output")
 OUTPUT_DIR.mkdir(exist_ok=True)
 
-# Source texts: key = short name, value = filename in DATA_DIR
-#USATGES_FILE = DATA_DIR / "Latin.docx"  # Usatges de Barcelona
 USATGES_TXT = DATA_DIR / "Bastardas Usatges de Barcelona_djvu.txt"
 
-# Параметры для фильтрации
-MIN_SEGMENT_LENGTH = 100  # Минимум символов в обычае
 SOURCES = {
     "Evangelium":    DATA_DIR / "Evangelium.docx",
     "CorpusJuris":  DATA_DIR / "Corpus Juris Civilis.docx",
@@ -22,32 +17,64 @@ SOURCES = {
     "ExceptPetri":  DATA_DIR / "Exeptionis Legum Romanorum Petri.docx",
 }
 
-# If you have .txt version of Usatges with article markers like "1 (UB. 1-2)"
-#USATGES_TXT = DATA_DIR / "Latin.txt"
+# --- Modular source segmentation configs ---
+SOURCE_CONFIGS = {
+    "Evangelium": {
+        "type": "evangelium",
+        "max_segment_words": 200,
+    },
+    "CorpusJuris": {
+        "type": "corpus_juris",
+        "max_segment_words": 200,
+    },
+    "LexVisigoth": {
+        "type": "lex_visigothorum",
+        "max_segment_words": 200,
+    },
+    "ExceptPetri": {
+        "type": "exceptiones_petri",
+        "max_segment_words": 200,
+    },
+    "Etymologiae": {
+        "type": "etymologiae",
+        "max_segment_words": 200,
+    },
+}
+
+DEFAULT_SOURCE_CONFIG = {
+    "type": "default",
+    "max_segment_words": 150,
+}
 
 # --- Preprocessing ---
 MIN_LEMMA_LENGTH = 3
-USE_COLLATINUS = False  # set False to use fallback stemmer
+USE_COLLATINUS = False
 
 # --- Feature extraction ---
-NGRAM_RANGE = (1, 3)          # unigrams + bigrams + trigrams
-MAX_DF = 0.50                 # discard terms in >50% of segments
-MIN_DF = 2                    # term must appear in >=2 segments
+NGRAM_RANGE = (1, 3)
+MAX_DF = 0.50
+MIN_DF = 2
 
 # --- Scoring ---
-TFIDF_COSINE_THRESHOLD = 0.08   # min TF-IDF cosine to be a candidate pair
-ALPHA = 0.30                    # weight for TF-IDF cosine
-BETA  = 0.40                    # weight for Tesserae-style score
-GAMMA = 0.30                    # weight for soft cosine
-FINAL_THRESHOLD = 0.10          # min BorrowScore to include in graph
+TFIDF_COSINE_THRESHOLD = 0.08
+ALPHA = 0.30
+BETA  = 0.40
+GAMMA = 0.30
+FINAL_THRESHOLD = 0.10
 
 # --- Smith-Waterman ---
 SW_MATCH = 2
 SW_MISMATCH = -1
 SW_GAP = -1
-SW_LEVENSHTEIN_BONUS_THRESHOLD = 2  # if lev_dist <= this, partial match
+SW_LEVENSHTEIN_BONUS_THRESHOLD = 2
+
+# --- Safety caps ---
+SOFT_COSINE_MAX_TERMS = 500   # max unique terms for soft-cosine matrix
+SW_MAX_SEQ_LEN = 300          # max lemma sequence length for Smith-Waterman
 
 # --- Output ---
 GRAPH_GEXF = OUTPUT_DIR / "borrowing_graph.gexf"
 GRAPH_PNG  = OUTPUT_DIR / "borrowing_graph.png"
 RESULTS_CSV = OUTPUT_DIR / "borrowing_pairs.csv"
+
+MIN_SEGMENT_LENGTH = 30
