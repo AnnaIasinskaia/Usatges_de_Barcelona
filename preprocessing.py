@@ -1,7 +1,8 @@
 """
 Step 1-2: Text loading, segmentation, normalization, lemmatization.
 
-Использует Collatinus (если доступен) или suffix-stemmer как fallback.
+Collatinus (если доступен) → simplemma → suffix-stemmer.
+Парсер Bastardas: 125 основных глав + до 20 адвентивных из аппендиксов A-D.
 """
 import re
 from pathlib import Path
@@ -12,7 +13,6 @@ try:
 except ImportError:
     docx = None
 
-# Collatinus (опционально)
 _COLLATINUS_AVAILABLE = False
 try:
     from pycollatinus import Lemmatiseur
@@ -20,7 +20,6 @@ try:
 except ImportError:
     pass
 
-# Simplemma (fallback)
 try:
     import simplemma
     _SIMPLEMMA_AVAILABLE = True
@@ -42,24 +41,25 @@ LATIN_STOPWORDS = {
     "inter", "pro", "sine", "nisi", "ante", "post", "ergo", "igitur",
     "quoque", "etiam", "omnis", "esse", "sum", "fui", "suo", "sua",
     "suum", "eius", "eorum", "nos", "uos", "ego", "tu", "se", "sibi",
-    "siue", "ac", "nam", "quia", "quidem", "nil", "nichil",
+    "uel", "siue", "ac", "nam", "quia", "quidem", "nil", "nichil",
 }
 
 
 def normalize_latin(text: str) -> str:
     """Apply medieval Latin orthographic normalisation."""
     t = text.lower()
-    t = t.replace("j", "i").replace("v", "u")
-    t = t.replace("ae", "e").replace("oe", "e")
-    t = t.replace("ph", "f").replace("y", "i")
+    t = t.replace('j', 'i').replace('v', 'u')
+    t = t.replace('ae', 'e').replace('oe', 'e')
+    t = t.replace('ph', 'f').replace('y', 'i')
     if not t:
         return t
-    # Remove duplicate consecutive characters
-    cleaned = [t[0]]
-    for ch in t[1:]:
-        if ch != cleaned[-1]:
+    cleaned = []
+    prev = None
+    for ch in t:
+        if ch != prev:
             cleaned.append(ch)
-    return "".join(cleaned)
+        prev = ch
+    return ''.join(cleaned)
 
 
 def tokenize_latin(text: str) -> List[str]:
@@ -93,29 +93,28 @@ _LATIN_ENDINGS = [
 
 
 def stem_latin(word: str) -> str:
-    """Simple suffix-stripping stemmer for Latin."""
     if len(word) < 4:
         return word
     w = word.lower().replace("j", "i").replace("v", "u")
     for ending in _LATIN_ENDINGS:
         if w.endswith(ending) and len(w) - len(ending) >= 3:
-            return w[: -len(ending)]
+            return w[:-len(ending)]
     return w
 
 
 class LatinLemmatizer:
-    """Collatinus с fallback на suffix-stemmer."""
+    """Collatinus → suffix-stemmer fallback."""
 
     def __init__(self, use_collatinus: bool = True):
         self._collatinus = None
         if use_collatinus and _COLLATINUS_AVAILABLE:
             try:
                 self._collatinus = Lemmatiseur()
-                print("✓ LatinLemmatizer: Collatinus доступен")
+                print("✓ LatinLemmatizer: Collatinus")
             except Exception as e:
-                print(f"⚠️ Collatinus недоступен: {e}")
+                print(f"⚠️ Collatinus: {e}")
         if self._collatinus is None:
-            print("✓ LatinLemmatizer: использует suffix-stemmer")
+            print("✓ LatinLemmatizer: suffix-stemmer")
 
     def lemmatize(self, word: str) -> str:
         if self._collatinus:
@@ -149,212 +148,282 @@ def load_txt(path: Path) -> str:
 
 
 # =====================================================================
-#  Segmentation — Bastardas critical edition
-# =====================================================================
-#
-#  Структура файла Bastardas djvu.txt:
-#  ─────────────────────────────────────
-#  Введение (каталанский) → затем для каждой главы ТРОЙКА блоков:
-#
-#    N (us. X)     ← Заголовок главы (cap number + usatge number)
-#    ЛАТИНСКИЙ ТЕКСТ (начинается с заглавных или типичных лат. слов)
-#
-#    N (us. X)     ← тот же номер
-#    КРИТИЧЕСКИЙ АППАРАТ (сиглы: PHN, HNV... || om. : )
-#
-#    N (us. X)     ← тот же номер
-#    КАТАЛАНСКИЙ ПЕРЕВОД (начинается с [A], [E], etc.)
-#
-#  Задача: извлечь ТОЛЬКО латинские блоки, один на главу.
+#  Segmentation helpers
 # =====================================================================
 
-# Markers for Catalan words (used to distinguish Catalan from Latin)
-_CATALAN_MARKERS = [
-    "l'", "d'", "és ", "axí ", " sie ", "senyor", "cavaler",
-    "pagès", "pleyts", "volrà", "pusque", "fossen",
-]
-
-# Markers for Latin words
-_LATIN_MARKERS = [
-    " uel ", "siue", " sint ", "fuerit", "sicut", "emendet",
-    "emendetur", "constituer", "princip", "iudic", " eius",
-    "debet", "autem", "faciat", " eos ",
-]
+# Sigla-based apparatus detector
+_SIGLA_RE = re.compile(
+    r'\bPHN\b|\bHNV\b|\bPNV\b|\bPHV\b|\bPH\b|\bPN\b|\bHV\b|\bNV\b'
+    r'|\bom\.\b|\|\|'
+)
 
 
 def _is_apparatus_line(line: str) -> bool:
-    """True if line belongs to the critical apparatus."""
-    if re.search(r"\|\||om\.|PH[NV]?\s*:|HN[V]?\s*:|PN[V]?\s*:", line):
+    """True if line looks like a critical apparatus entry."""
+    s = line.strip()
+    if not s:
+        return False
+    if _SIGLA_RE.search(s):
         return True
-    if re.match(r'^[\.\s]*\d+[\s/\-]+\w+', line) and re.search(r'PH|HN|NV|PN', line):
+    # "106 (us. 127). 1 patris..." — apparatus header
+    if re.match(r'^\d+\s*\(us\..*\)\.\s*\d', s):
         return True
     return False
 
 
-def _is_catalan_start(line: str) -> bool:
-    """True if line starts a Catalan translation block."""
-    clean = re.sub(r'^[\.\s]+', '', line)
-    if re.match(r'^\[', clean):
-        return True
-    if re.match(r'^f\.\s*\d', clean):
+def _is_catalan_or_note(line: str) -> bool:
+    """True if line is clearly Catalan text or editorial note."""
+    s = line.strip()
+    if not s:
+        return False
+    # Catalan markers
+    catalan_markers = [
+        r'\bque\b.*\blos\b', r'\bde\b.*\bla\b', r'\bdels\b', r'\bels\b',
+        r'\bsie\b', r'\bhom\b', r'\btots\b', r'\baquesta\b', r'\bpleyts\b',
+        r'\bemenat\b', r'\bcavaler\b', r'\bsenyors?\b', r'\bhómens\b',
+        r'\bf\.\s*\d+[rv]',  # folio references
+        r'^\[', r'\[A\]',  # editorial brackets
+    ]
+    sl = s.lower()
+    for pat in catalan_markers:
+        if re.search(pat, sl):
+            return True
+    # Numbered editorial notes: "4. Aquest captol..."
+    if re.match(r'^\d+\.\s+[A-Z]', s) and any(w in sl for w in ['captol', 'manuscrit', 'traducci']):
         return True
     return False
 
 
-def _classify_block_as_latin(lines: List[str]) -> bool:
-    """
-    Given the first few meaningful lines after a chapter header,
-    determine if this block is Latin text (vs apparatus or Catalan).
-    """
-    # Find first meaningful line
-    first = None
-    for line in lines:
-        if re.match(r'^\d+$', line):
-            continue
-        if re.match(r'^\d+\s*\(us\.', line):
-            continue
-        if 'VSATICI BARCHINONAE' in line or 'USATGES DE BARCELONA' in line:
-            continue
-        first = line
-        break
-
-    if not first:
+def _classify_block_as_latin(lines) -> bool:
+    """Check if the first few lines of a block are Latin (not Catalan/apparatus)."""
+    if isinstance(lines, str):
+        lines = [l.strip() for l in lines.split('\n') if l.strip()]
+    sample = lines[:5]
+    if not sample:
         return False
-
-    # Apparatus?
-    if _is_apparatus_line(first):
+    # If the first non-empty line is apparatus, not Latin
+    if _is_apparatus_line(sample[0]):
         return False
-
-    # Catalan?
-    if _is_catalan_start(first):
+    # If clearly Catalan
+    catalan_count = sum(1 for l in sample if _is_catalan_or_note(l))
+    if catalan_count > len(sample) * 0.5:
         return False
-
-    # Content analysis
-    first_clean = re.sub(r'^[\.\s]+', '', first)
-    sample = ' '.join(lines[:5]).lower()
-    cat_count = sum(1 for m in _CATALAN_MARKERS if m in sample)
-    lat_count = sum(1 for m in _LATIN_MARKERS if m in sample)
-
-    # ALL CAPS start — strong Latin signal
-    if re.match(r'^[A-Z]{2,}', first_clean):
-        return True
-
-    # Typical Latin opening words
-    if re.match(
-        r'^(Vt|Item|Set|Si |In |De |Similiter|Quicumque|Quod|Quia|Hoc|'
-        r'Omnes|Ipse|Post|Moneta|Eandem|Quoniam|Auctoritate)',
-        first_clean,
-    ):
-        return cat_count < 3
-
-    # Latin content predominates
-    if lat_count >= 2 and lat_count > cat_count:
-        return True
-
-    # No Catalan markers + Latin vocabulary present
-    if cat_count == 0 and re.search(r'\b(uel|siue|sicut|fuerit|sint|eius)\b', sample):
-        return True
-
-    return False
+    # Check for Latin keywords in first line
+    first = sample[0].lower()
+    latin_indicators = [
+        'quis', 'uel', 'aut', 'iudic', 'emend', 'usatic', 'princip',
+        'ecclesi', 'homini', 'milite', 'solido', 'compos', 'senior',
+    ]
+    has_latin = any(ind in first for ind in latin_indicators)
+    # Latin text often starts with ALL CAPS
+    has_caps = bool(re.match(r'^[A-Z]{3,}', sample[0].strip()))
+    return has_latin or has_caps or not _is_catalan_or_note(sample[0])
 
 
-def _extract_latin_portion(lines: List[str]) -> str:
-    """
-    From a raw block, extract only the Latin portion.
-    Stops at the first apparatus or Catalan line.
-    Returns cleaned, joined text.
-    """
-    latin_lines = []
+def _extract_latin_portion(lines) -> str:
+    """Extract Latin text, stopping at apparatus or Catalan."""
+    if isinstance(lines, str):
+        lines = [l.strip() for l in lines.split('\n') if l.strip()]
+    result = []
     for line in lines:
         s = line.strip()
-        if not s or re.match(r'^\d+$', s):
+        if not s:
             continue
-        if 'VSATICI BARCHINONAE' in s or 'USATGES DE BARCELONA' in s:
-            continue
-        if re.match(r'^\d+\s*\(us\.', s):
-            continue
-
-        # STOP at apparatus
         if _is_apparatus_line(s):
             break
-        # STOP at Catalan
-        if _is_catalan_start(s):
+        if _is_catalan_or_note(s):
             break
-        # STOP at line with heavy Catalan content
-        s_lower = s.lower()
-        if sum(1 for m in _CATALAN_MARKERS if m in s_lower) >= 2:
-            break
-
-        latin_lines.append(s)
-
-    result = ' '.join(latin_lines)
-    result = re.sub(r'(\w)- (\w)', r'\1\2', result)   # fix line-break hyphens
-    result = re.sub(r'\s+', ' ', result).strip()
-    result = re.sub(r'^[\.\s]+', '', result)           # leading dots
-    return result
-
+        # Page headers
+        if re.match(r'^\d+\s+VSATICI\b', s) or re.match(r'^\d+\s+USATGES\b', s):
+            continue
+        if s in ('VSATICI BARCHINONAE', 'USATGES DE BARCELONA'):
+            continue
+        # Pure numbers (line numbers)
+        if re.match(r'^\d+$', s):
+            continue
+        result.append(s)
+    text = ' '.join(result)
+    # Clean hyphens and whitespace
+    text = re.sub(r'(\w)- (\w)', r'\1\2', text)
+    text = re.sub(r'\s+', ' ', text).strip()
+    # Remove footnote references
+    text = re.sub(r'\[\d+\]', '', text)
+    return text
 
 
 def _fix_split_headers(text: str) -> str:
-    """
-    Fix OCR artifacts where a chapter header is split across lines:
-      '106\n(us. 127)' → '106 (us. 127)'
-    """
-    return re.sub(r'(\d+)\s*\n\s*(\(us\.)', r'\1 \2', text)
+    """Fix OCR line-splits: '106\\n(us. 127)' → '106 (us. 127)'."""
+    return re.sub(
+        r'^(\d{1,3})\s*\n+\s*(\(us\.)',
+        r'\1 \2',
+        text,
+        flags=re.MULTILINE,
+    )
+
+
+# =====================================================================
+#  Main Bastardas parser (chapters 1-125)
+# =====================================================================
 
 def segment_usatges_bastardas(text: str) -> List[Tuple[str, str]]:
     """
     Parse the Bastardas critical edition (djvu.txt).
-
-    Returns list of (article_id, latin_text) for each chapter.
-    article_id format: "Us_{usatge_number}" (e.g. "Us_3", "Us_4,1", "Us_66,2").
+    Returns list of (article_id, latin_text) for chapters 1-125.
     """
-    # Fix OCR line-splits in chapter headers (e.g. "106\n(us. 127)")
     text = _fix_split_headers(text)
 
-    # Find all chapter headers: "N (us. X)"
+    # Primary: "106 (us. 127)"
     chapter_re = re.compile(
         r'^\s*(\d+)\s*\(us\.\s*([\d\-,\.\s]+)\)',
         re.MULTILINE,
     )
-    headers = list(chapter_re.finditer(text))
-    if not headers:
+    # Bare: "(us. 127)" — OCR artifact (no cap number)
+    bare_re = re.compile(
+        r'^\s*\(us\.\s*([\d\-,\.\s]+)\)',
+        re.MULTILINE,
+    )
+
+    anteqvam_pos = text.find('ANTEQVAM VSATICI')
+    apendix_pos = text.find('APENDIX A', len(text) // 2)
+    if anteqvam_pos < 0:
+        anteqvam_pos = 0
+    if apendix_pos < 0:
+        apendix_pos = len(text)
+
+    # Collect all headers into unified list
+    all_headers = []  # (position, end, us_str, cap_str_or_None)
+    primary_positions = set()
+
+    for m in chapter_re.finditer(text):
+        if m.start() < anteqvam_pos or m.start() > apendix_pos:
+            continue
+        all_headers.append((m.start(), m.end(), m.group(2).strip(), m.group(1)))
+        primary_positions.add(m.start())
+
+    for m in bare_re.finditer(text):
+        if any(abs(m.start() - pp) < 10 for pp in primary_positions):
+            continue
+        if m.start() < anteqvam_pos or m.start() > apendix_pos:
+            continue
+        # Verify: next non-blank line should start with Latin uppercase
+        after = text[m.end():m.end() + 200]
+        after_lines = [l.strip() for l in after.split('\n') if l.strip()]
+        if after_lines and re.match(r'^[A-Z]{3,}', after_lines[0]):
+            all_headers.append((m.start(), m.end(), m.group(1).strip(), None))
+
+    all_headers.sort(key=lambda x: x[0])
+    if not all_headers:
         return []
 
-    latin_blocks = {}   # cap_num -> {cap, us, text}
+    # For each usatge number, take first Latin block
+    latin_blocks = {}  # us_key → {us, text, sort_key}
 
-    for i, h in enumerate(headers):
-        cap = h.group(1)
-        us  = h.group(2).strip()
-
-        # Keep only the FIRST Latin block per chapter number
-        if cap in latin_blocks:
+    for i, (pos, hdr_end, us_str, cap_str) in enumerate(all_headers):
+        us_key = us_str.replace(' ', '')
+        if us_key in latin_blocks:
             continue
 
-        # Text between this header and the next
-        block_start = h.end()
-        block_end = headers[i + 1].start() if i + 1 < len(headers) else len(text)
-        raw_block = text[block_start:block_end]
+        block_end = all_headers[i + 1][0] if i + 1 < len(all_headers) else apendix_pos
+        raw = text[hdr_end:block_end]
 
-        lines = [l.strip() for l in raw_block.split('\n') if l.strip()]
+        lines = [l.strip() for l in raw.split('\n') if l.strip()]
         if not lines:
             continue
-
-        # Classify: is this block Latin?
         if not _classify_block_as_latin(lines):
             continue
 
-        # Extract only the Latin portion (stop at apparatus/Catalan)
         latin_text = _extract_latin_portion(lines)
         if len(latin_text) > 15:
-            latin_blocks[cap] = {'cap': cap, 'us': us, 'text': latin_text}
+            if cap_str:
+                sort_key = int(cap_str)
+            else:
+                nums = re.findall(r'\d+', us_str)
+                sort_key = int(nums[0]) + 1000 if nums else 9999
+            latin_blocks[us_key] = {'us': us_str, 'text': latin_text, 'sort_key': sort_key}
 
-    # Build output sorted by chapter number
     segments = []
-    for cap in sorted(latin_blocks, key=lambda x: int(x)):
-        b = latin_blocks[cap]
+    for us_key in sorted(latin_blocks, key=lambda k: latin_blocks[k]['sort_key']):
+        b = latin_blocks[us_key]
         seg_id = f"Us_{b['us'].replace(' ', '')}"
         segments.append((seg_id, b['text']))
+
+    return segments
+
+
+# =====================================================================
+#  Appendix parser (adventitious usatges from Appendices A-D)
+# =====================================================================
+
+def _parse_appendix_usatges(text: str) -> List[Tuple[str, str]]:
+    """
+    Parse the 20 adventitious usatges from Appendices A-D.
+      A: us. 16, 63, 96
+      B: us. 82, 85-90
+      C: us. 145-152
+      D: us. 139-140
+    """
+    # Headers: "Al (us. 16)", "B2 (us. 85)", "C4 (us. 147)", "D1 (us. 139)"
+    # OCR renders "A1" as "Al"
+    appendix_re = re.compile(
+        r'^([A-D])([l1-8])\s*\(us\.\s*(\d+)\)',
+        re.MULTILINE,
+    )
+
+    text_headers = []
+    for m in appendix_re.finditer(text):
+        after = text[m.end():m.end() + 30]
+        if re.match(r'\.\s*\d', after):  # apparatus line
+            continue
+        appendix = m.group(1)
+        item = m.group(2).replace('l', '1')
+        us_num = m.group(3)
+        text_headers.append((appendix, item, us_num, m.start()))
+
+    if not text_headers:
+        return []
+
+    segments = []
+    for i, (app, item, us_num, pos) in enumerate(text_headers):
+        header_end = text.index('\n', pos) + 1
+
+        if i + 1 < len(text_headers):
+            end = text_headers[i + 1][3]
+        else:
+            for marker in ['ÍNDEXS', 'NDEXS', 'INDEX']:
+                idx = text.find(marker, pos)
+                if idx != -1:
+                    end = idx
+                    break
+            else:
+                end = min(pos + 2000, len(text))
+
+        raw = text[header_end:end].strip()
+        lines = raw.split('\n')
+        clean = []
+        for line in lines:
+            s = line.strip()
+            if not s:
+                continue
+            if re.match(r'^[A-D][l1-8]\s*\(us\.', s):
+                break
+            if re.match(r'^AP[EÈ]NDIX', s):
+                break
+            if re.match(r'^APENDIXS\s+\d', s):
+                break
+            if s.startswith('Observacions'):
+                break
+            if re.match(r'^\d+\s+APENDIXS', s) or re.match(r'^\d+\s+VSATICI', s):
+                continue
+            if re.match(r'^\d+$', s):
+                continue
+            clean.append(line.rstrip())
+
+        latin = ' '.join(clean)
+        latin = re.sub(r'(\w)- (\w)', r'\1\2', latin)
+        latin = re.sub(r'\s+', ' ', latin).strip()
+
+        if len(latin) > 20:
+            segments.append((f"Us_{us_num}", latin))
 
     return segments
 
@@ -366,30 +435,38 @@ def segment_usatges_bastardas(text: str) -> List[Tuple[str, str]]:
 def segment_usatges(text: str) -> List[Tuple[str, str]]:
     """
     Сегментация Usatges из текстового файла Bastardas (djvu.txt).
-    Возвращает список (article_id, latin_text).
+    125 основных обычаев + до 20 адвентивных из аппендиксов A-D.
     """
+    # 1. Основные (chapters 1-125)
     segments = segment_usatges_bastardas(text)
-    print(f"✓ Bastardas: {len(segments)} латинских сегментов")
+    for s in segments:
+        print(s[0])
+    main_count = len(segments)
+
+    # 2. Адвентивные (appendices A-D)
+    appendix_segments = _parse_appendix_usatges(text)
+
+    existing_ids = {seg[0] for seg in segments}
+    added = 0
+    for seg_id, seg_text in appendix_segments:
+        if seg_id not in existing_ids:
+            segments.append((seg_id, seg_text))
+            existing_ids.add(seg_id)
+            added += 1
+
+    print(f"✓ Bastardas: {main_count} основных + {added} из аппендиксов = {len(segments)} всего")
     return segments
 
-
-# =====================================================================
-#  Segmentation — generic source texts
-# =====================================================================
 
 def segment_source(
     text: str, source_name: str, max_segment_words: int = 150
 ) -> List[Tuple[str, str]]:
     """Segment a source text into chunks of ~max_segment_words."""
-    paragraphs = [
-        p.strip() for p in text.split("\n") if p.strip() and len(p.strip()) > 20
-    ]
-
+    paragraphs = [p.strip() for p in text.split("\n") if p.strip() and len(p.strip()) > 20]
     segments = []
     current_text = ""
     current_words = 0
     seg_idx = 1
-
     for para in paragraphs:
         words = len(para.split())
         if current_words + words > max_segment_words and current_text:
@@ -400,16 +477,10 @@ def segment_source(
         else:
             current_text += para + " "
             current_words += words
-
     if current_text.strip():
         segments.append((f"{source_name}_S{seg_idx}", current_text.strip()))
-
     return segments
 
-
-# =====================================================================
-#  Full preprocessing pipeline for a segment
-# =====================================================================
 
 def preprocess_segment(
     text: str,
@@ -417,35 +488,29 @@ def preprocess_segment(
     remove_stopwords: bool = True,
     min_length: int = 3,
 ) -> List[str]:
-    """Normalize → tokenize → lemmatize → filter."""
+    """Full preprocessing pipeline for a single segment."""
     normalized = normalize_latin(text)
     tokens = tokenize_latin(normalized)
     lemmas = lemmatizer.lemmatize_tokens(tokens)
-
     result = []
     for lem in lemmas:
         if len(lem) < min_length:
             continue
         if remove_stopwords and lem in LATIN_STOPWORDS:
             continue
-        if re.match(
-            r"^m{0,3}(cm|cd|d?c{0,3})(xc|xl|l?x{0,3})(ix|iu|u?i{0,3})$", lem
-        ):
+        if re.match(r"^m{0,3}(cm|cd|d?c{0,3})(xc|xl|l?x{0,3})(ix|iu|u?i{0,3})$", lem):
             continue
         result.append(lem)
     return result
 
 
-# =====================================================================
-#  Quick self-test
-# =====================================================================
-
 if __name__ == "__main__":
     lem = LatinLemmatizer(use_collatinus=False)
-
-    test = "ANTEQVAM VSATICI fuissent missi solebant iudices iudicare"
-    print("INPUT:     ", test)
-    print("NORMALIZED:", normalize_latin(test))
-    tokens = tokenize_latin(normalize_latin(test))
-    print("TOKENS:    ", tokens)
-    print("LEMMAS:    ", lem.lemmatize_tokens(tokens))
+    test_text = "ANTEQVAM VSATICI fuissent missi solebant iudices iudicare"
+    print("TEST:", test_text)
+    normalized = normalize_latin(test_text)
+    print("NORM:", normalized)
+    tokens = tokenize_latin(normalized)
+    print("TOKENS:", tokens)
+    lemmas = lem.lemmatize_tokens(tokens)
+    print("LEMMAS:", lemmas)
