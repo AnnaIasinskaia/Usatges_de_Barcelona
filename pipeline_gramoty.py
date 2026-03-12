@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -6,39 +5,22 @@ pipeline_gramoty.py
 
 Separate pipeline for the charters study.
 
-Core idea
----------
-1) Load the already built "sources -> Usatges" graph from a GEXF file.
-2) Segment Usatges and both charter volumes.
-3) Score "Usatges -> charter" segment pairs with TF-IDF cosine.
-4) Project matches through the old graph to obtain "sources -> charters".
-5) Build a two-column graph with separate colors for both charter volumes.
+Target graph shape
+------------------
+Left column:
+    - source segments from the old source->Usatges graph, grouped by source
+    - Usatges segments matched directly to charters, grouped as "Usatges"
+Right column:
+    - charter segments from both charter volumes, sorted by date
 
-This file is intentionally tolerant to differences in the existing repo:
-- config variable names are discovered dynamically;
-- source_segmenters / usatges_segmenter signatures are inspected dynamically;
-- if some preprocessing helpers are unavailable, a lightweight fallback is used.
-
-Expected output
----------------
-- output/gramoty/usatges_to_gramoty.csv
-- output/gramoty/sources_to_gramoty.csv
-- output/gramoty/gramoty_graph.gexf
-- output/gramoty/gramoty_graph.png
-
-Typical run
------------
-    python pipeline_gramoty.py
-
-Optional custom config module:
-    python pipeline_gramoty.py config_gramoty
+Edges:
+    1) direct:   Usatge segment -> Charter segment
+    2) projected: Source segment -> Charter segment (through Usatges)
 """
 from __future__ import annotations
 
-import csv
 import importlib
 import inspect
-import math
 import re
 import sys
 import unicodedata
@@ -88,7 +70,7 @@ def _resolve_path(value: Any, data_dir: Optional[Path] = None) -> Path:
 
 def _discover_config(cfg_module: Any) -> Dict[str, Any]:
     data_dir = Path(_first_attr(cfg_module, "DATA_DIR", default="data"))
-    output_dir = Path(_first_attr(cfg_module, "OUTPUT_DIR", default="output")) / "gramoty"
+    output_dir = Path(_first_attr(cfg_module, "OUTPUT_DIR", default="output"))
 
     sources = _first_attr(cfg_module, "SOURCES", "SOURCE_FILES", default=None)
     if not isinstance(sources, dict) or not sources:
@@ -114,7 +96,6 @@ def _discover_config(cfg_module: Any) -> Dict[str, Any]:
         default=None,
     )
     if usatges_path is None:
-        # Common filename fallback from the repo README/history.
         fallback = data_dir / "Bastardas Usatges de Barcelona_djvu.txt"
         if fallback.exists():
             usatges_path = fallback
@@ -126,17 +107,8 @@ def _discover_config(cfg_module: Any) -> Dict[str, Any]:
         "SOURCE_GRAPH_GEXF",
         "USATGES_GRAPH_GEXF",
         "BORROWING_GRAPH_GEXF",
-        default=None,
+        default=Path("output") / "borrowing_graph.gexf",
     )
-    if source_graph_path is None:
-        candidates = [
-            output_dir.parent / "borrowing_graph.gexf",
-            output_dir.parent / "graph.gexf",
-            output_dir.parent / "usatges_graph.gexf",
-            Path("borrowing_graph.gexf"),
-            Path("graph.gexf"),
-        ]
-        source_graph_path = next((p for p in candidates if Path(p).exists()), candidates[0])
 
     cosine_threshold = float(
         _first_attr(
@@ -145,12 +117,16 @@ def _discover_config(cfg_module: Any) -> Dict[str, Any]:
             "CHARTER_COSINE_THRESHOLD",
             "TFIDF_COSINE_THRESHOLD",
             "COSINE_THRESHOLD",
-            default=0.12,
+            default=0.08,
         )
     )
     top_k = int(_first_attr(cfg_module, "GRAMOTY_TOP_K", "TOP_K", default=5))
     min_words = int(_first_attr(cfg_module, "GRAMOTY_MIN_WORDS", "MIN_SEGMENT_WORDS", default=12))
     max_segment_words = int(_first_attr(cfg_module, "MAX_SEGMENT_WORDS", default=200))
+    graph_top_n = int(_first_attr(cfg_module, "GRAPH_TOP_N", default=120))
+
+    source_names_ru = _first_attr(cfg_module, "SOURCE_NAMES_RU", default={})
+    source_names_ru_short = _first_attr(cfg_module, "SOURCE_NAMES_RU_SHORT", default={})
 
     return {
         "DATA_DIR": data_dir,
@@ -163,6 +139,9 @@ def _discover_config(cfg_module: Any) -> Dict[str, Any]:
         "TOP_K": top_k,
         "MIN_WORDS": min_words,
         "MAX_SEGMENT_WORDS": max_segment_words,
+        "GRAPH_TOP_N": graph_top_n,
+        "SOURCE_NAMES_RU": source_names_ru,
+        "SOURCE_NAMES_RU_SHORT": source_names_ru_short,
     }
 
 
@@ -184,11 +163,7 @@ def load_text(path: Path) -> str:
 
 def _call_with_supported_kwargs(func: Callable, *args, **kwargs):
     sig = inspect.signature(func)
-    accepted = {
-        name: value
-        for name, value in kwargs.items()
-        if name in sig.parameters
-    }
+    accepted = {name: value for name, value in kwargs.items() if name in sig.parameters}
     return func(*args, **accepted)
 
 
@@ -196,46 +171,15 @@ def segment_usatges(text: str, max_segment_words: int = 200) -> List[Segment]:
     mod = importlib.import_module("usatges_segmenter")
     if hasattr(mod, "segment_usatges"):
         return _call_with_supported_kwargs(mod.segment_usatges, text, max_segment_words=max_segment_words)
-    # fallback: first callable that looks right
     for name in dir(mod):
         if name.startswith("segment_") and callable(getattr(mod, name)):
             return _call_with_supported_kwargs(getattr(mod, name), text, max_segment_words=max_segment_words)
     raise RuntimeError("Could not find segment_usatges in usatges_segmenter.py")
 
 
-def segment_source_text(text: str, source_name: str, max_segment_words: int = 200):
-    mod = importlib.import_module("source_segmenters")
-    if hasattr(mod, "segment_source"):
-        # common signatures: (text, source_name) or (text, source_name, cfg) or kwargs
-        return _call_with_supported_kwargs(
-            mod.segment_source,
-            text,
-            source_name,
-            cfg={"max_segment_words": max_segment_words},
-            max_segment_words=max_segment_words,
-        )
-
-    func_name = f"segment_{source_name.lower()}"
-    if hasattr(mod, func_name):
-        return _call_with_supported_kwargs(
-            getattr(mod, func_name),
-            text,
-            source_name,
-            max_segment_words=max_segment_words,
-        )
-
-    raise RuntimeError("Could not find source segmentation entry point in source_segmenters.py")
-
-
 def segment_charter_text(text: str, source_name: str, max_segment_words: int = 200):
     mod = importlib.import_module("seg_gramoty_stable")
-
-    # preferred names
-    for candidate in (
-        "segment_gramoty_stable",
-        "segment_gramoty",
-        f"segment_{source_name.lower()}",
-    ):
+    for candidate in ("segment_gramoty_stable", "segment_gramoty", f"segment_{source_name.lower()}"):
         if hasattr(mod, candidate):
             return _call_with_supported_kwargs(
                 getattr(mod, candidate),
@@ -243,8 +187,6 @@ def segment_charter_text(text: str, source_name: str, max_segment_words: int = 2
                 source_name,
                 max_segment_words=max_segment_words,
             )
-
-    # fallback: first callable with "segment" in name
     for name in dir(mod):
         if name.startswith("segment_") and callable(getattr(mod, name)):
             return _call_with_supported_kwargs(
@@ -253,21 +195,16 @@ def segment_charter_text(text: str, source_name: str, max_segment_words: int = 2
                 source_name,
                 max_segment_words=max_segment_words,
             )
-
     raise RuntimeError("Could not find a charter segmenter in seg_gramoty_stable.py")
 
 
 # ----------------------------- normalization -----------------------------
 
 
-_LATIN_MAP = str.maketrans({
-    "j": "i", "J": "I",
-    "v": "u", "V": "U",
-})
+_LATIN_MAP = str.maketrans({"j": "i", "J": "I", "v": "u", "V": "U"})
 
 
 def normalize_text(text: str) -> str:
-    """Safe local fallback if repository preprocessing is unavailable."""
     text = unicodedata.normalize("NFKC", text)
     text = text.translate(_LATIN_MAP)
     text = re.sub(r"æ", "e", text, flags=re.IGNORECASE)
@@ -283,7 +220,6 @@ def maybe_preprocess_segments(segments: Sequence[Segment]) -> List[Segment]:
     except Exception:
         return [(sid, normalize_text(text)) for sid, text in segments]
 
-    # Try several likely entry points from the repo lineage.
     for candidate in ("preprocess_text", "normalize_latin", "preprocess_segment"):
         if hasattr(preprocessing, candidate):
             func = getattr(preprocessing, candidate)
@@ -305,14 +241,8 @@ def maybe_preprocess_segments(segments: Sequence[Segment]) -> List[Segment]:
 def _segment_word_count(text: str) -> int:
     return len([w for w in text.split() if w])
 
-def _segment_to_pair(seg):
-    """
-    Normalize a segment to (id, text).
 
-    Supports:
-    - dict: {"id": ..., "text": ..., ...}
-    - tuple/list: (id, text) or (id, text, ...)
-    """
+def _segment_to_pair(seg):
     if isinstance(seg, dict):
         seg_id = seg.get("id")
         seg_text = seg.get("text")
@@ -331,6 +261,7 @@ def _segment_to_pair(seg):
 def _normalize_segment_list(segments):
     return [_segment_to_pair(seg) for seg in segments]
 
+
 def build_tfidf(texts: Sequence[str]) -> TfidfVectorizer:
     vectorizer = TfidfVectorizer(
         analyzer="word",
@@ -346,26 +277,15 @@ def build_tfidf(texts: Sequence[str]) -> TfidfVectorizer:
 def compute_usatges_to_charters(
     usatges_segments,
     charter_segments,
-    cosine_threshold=0.10,
-    final_threshold=0.15,
-    top_k=20,
-    min_words=5,
+    cosine_threshold=0.08,
+    top_k=5,
+    min_words=12,
 ):
     usatges_segments = _normalize_segment_list(usatges_segments)
     charter_segments = _normalize_segment_list(charter_segments)
 
-    usatges_segments = [
-        (sid, txt)
-        for sid, txt in usatges_segments
-        if _segment_word_count(txt) >= min_words
-    ]
-    charter_segments = [
-        (sid, txt)
-        for sid, txt in charter_segments
-        if _segment_word_count(txt) >= min_words
-    ]
-
-    # дальше ваш существующий код
+    usatges_segments = [(sid, txt) for sid, txt in usatges_segments if _segment_word_count(txt) >= min_words]
+    charter_segments = [(sid, txt) for sid, txt in charter_segments if _segment_word_count(txt) >= min_words]
 
     prep_usatges = maybe_preprocess_segments(usatges_segments)
     prep_charters = maybe_preprocess_segments(charter_segments)
@@ -375,7 +295,6 @@ def compute_usatges_to_charters(
 
     u_matrix = vectorizer.transform([txt for _, txt in prep_usatges])
     c_matrix = vectorizer.transform([txt for _, txt in prep_charters])
-
     sim = cosine_similarity(u_matrix, c_matrix)
 
     rows: List[Dict[str, Any]] = []
@@ -399,51 +318,50 @@ def compute_usatges_to_charters(
             kept += 1
             if kept >= top_k:
                 break
+
+    rows.sort(key=lambda row: (-float(row["score"]), str(row["usatge_id"]), str(row["charter_id"])))
     return rows
 
 
 # ----------------------------- source graph projection -----------------------------
 
 
-def _node_kind(node: str, attrs: Dict[str, Any]) -> str:
-    node_str = str(node)
+def _derive_source_group(source_segment_id: str, attrs: Optional[Dict[str, Any]] = None) -> str:
     attrs = attrs or {}
-    kind = str(attrs.get("type") or attrs.get("kind") or "").lower()
-    label = str(attrs.get("label") or node_str).lower()
-
-    if kind:
-        return kind
-    if "usatg" in node_str.lower() or "usatg" in label:
-        return "usatge"
-    return "source"
-
-
-import networkx as nx
+    text_group = attrs.get("text_group")
+    if text_group:
+        return str(text_group)
+    src = str(source_segment_id)
+    if "_S" in src:
+        return src.split("_S", 1)[0]
+    return src.split("_", 1)[0]
 
 
-def load_source_to_usatges_edges(gexf_path):
+def load_source_to_usatges_edges(gexf_path: Path) -> List[Dict[str, Any]]:
     """
-    Load source -> Usatges edges from the old borrowing graph.
-
-    Expected real format in borrowing_graph.gexf:
+    Real format in borrowing_graph.gexf:
       - source nodes: node_type='source'
       - usatge nodes: node_type='usatge'
-      - edge direction: source -> usatge
-      - edge weight in 'weight'
+      - edges: source_segment -> usatge_segment
+      - source nodes also store text_group (source corpus)
     """
     G = nx.read_gexf(gexf_path)
+    edges: List[Dict[str, Any]] = []
 
-    edges = []
     for u, v, attrs in G.edges(data=True):
-        u_type = str(G.nodes[u].get("node_type", "")).strip().lower()
-        v_type = str(G.nodes[v].get("node_type", "")).strip().lower()
+        u_attrs = dict(G.nodes[u])
+        v_attrs = dict(G.nodes[v])
+        u_type = str(u_attrs.get("node_type", "")).strip().lower()
+        v_type = str(v_attrs.get("node_type", "")).strip().lower()
 
         if u_type == "source" and v_type == "usatge":
             edges.append(
                 {
-                    "source": str(u),
-                    "target": str(v),
+                    "source_segment_id": str(u),
+                    "source_group": _derive_source_group(u, u_attrs),
+                    "usatge_id": str(v),
                     "weight": float(attrs.get("weight", 1.0)),
+                    "alignment": attrs.get("alignment", ""),
                 }
             )
 
@@ -454,71 +372,94 @@ def load_source_to_usatges_edges(gexf_path):
     return edges
 
 
-def project_sources_to_charters(
+def project_source_segments_to_charters(
     source_usatges: Sequence[Dict[str, Any]],
     usatges_charters: Sequence[Dict[str, Any]],
 ) -> List[Dict[str, Any]]:
-    incoming: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
-    for row in source_usatges:
-        incoming[str(row["usatge_id"])].append(row)
-
-    acc: Dict[Tuple[str, str], Dict[str, Any]] = {}
+    """
+    Project old source_segment -> usatge edges through newly computed
+    usatge -> charter edges.
+    """
+    by_usatge: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
     for row in usatges_charters:
+        by_usatge[str(row["usatge_id"])].append(row)
+
+    projected: List[Dict[str, Any]] = []
+    for row in source_usatges:
         usatge_id = str(row["usatge_id"])
-        for left in incoming.get(usatge_id, []):
-            key = (str(left["source"]), str(row["charter_id"]))
-            projected_weight = float(left["source_weight"]) * float(row["score"])
-            if key not in acc:
-                acc[key] = {
-                    "source": str(left["source"]),
-                    "charter_id": str(row["charter_id"]),
-                    "weight": 0.0,
-                    "evidence": [],
-                }
-            acc[key]["weight"] += projected_weight
-            acc[key]["evidence"].append(
+        for hit in by_usatge.get(usatge_id, []):
+            projected.append(
                 {
-                    "usatge_id": usatge_id,
-                    "source_weight": float(left["source_weight"]),
-                    "charter_score": float(row["score"]),
+                    "left_id": str(row["source_segment_id"]),
+                    "left_group": str(row["source_group"]),
+                    "charter_id": str(hit["charter_id"]),
+                    "weight": float(row["weight"]) * float(hit["score"]),
+                    "edge_type": "source_projection",
+                    "via_usatge_id": usatge_id,
+                    "source_to_usatge_weight": float(row["weight"]),
+                    "usatge_to_charter_score": float(hit["score"]),
                 }
             )
 
-    result = list(acc.values())
-    result.sort(key=lambda x: (-x["weight"], x["source"], x["charter_id"]))
-    return result
+    projected.sort(key=lambda row: (-float(row["weight"]), row["left_group"], row["left_id"], row["charter_id"]))
+    return projected
+
+
+def prepare_usatges_direct_rows(usatges_charters: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    for row in usatges_charters:
+        rows.append(
+            {
+                "left_id": str(row["usatge_id"]),
+                "left_group": "Usatges",
+                "charter_id": str(row["charter_id"]),
+                "weight": float(row["score"]),
+                "edge_type": "usatge_direct",
+                "via_usatge_id": str(row["usatge_id"]),
+            }
+        )
+    rows.sort(key=lambda row: (-float(row["weight"]), row["left_id"], row["charter_id"]))
+    return rows
 
 
 # ----------------------------- metadata -----------------------------
 
 
 def parse_charter_metadata(seg_id: str) -> Dict[str, Any]:
-    """
-    Extract best-effort metadata from charter segment ids.
-
-    Expected ids may look like:
-      Gramoty911_0812_abril_02_aquisgra_S1
-      Gramoty12_1201_març_14_tortosa_S1
-      Gramoty911_S1   (fallback)
-    """
     seg_id = str(seg_id)
     lower = seg_id.lower()
 
     volume = None
-    if "911" in lower or "9_11" in lower:
+    if "gramoty911" in lower or "911" in lower:
         volume = "I"
-    elif re.search(r"(gramoty12|12_)", lower):
+    elif "gramoty12" in lower:
         volume = "II"
 
-    parts = re.split(r"[_\-]", seg_id)
     year = None
-    for part in parts:
-        if re.fullmatch(r"\d{3,4}", part):
-            year = int(part)
-            break
+    m = re.search(r"_Y(\d{3,4})", seg_id)
+    if m:
+        year = int(m.group(1))
+    else:
+        m = re.search(r"(?:_|^)(\d{3,4})(?:_|$)", seg_id)
+        if m:
+            year = int(m.group(1))
+
+    doc_no = None
+    m = re.search(r"_D(\d+)", seg_id)
+    if m:
+        doc_no = int(m.group(1))
 
     date_key = year if year is not None else 999999
-    return {"volume": volume or "?", "year": year, "date_key": date_key}
+    return {"volume": volume or "?", "year": year, "doc_no": doc_no, "date_key": date_key}
+
+
+def enrich_graph_rows(rows: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    out: List[Dict[str, Any]] = []
+    for row in rows:
+        new_row = dict(row)
+        new_row.update(parse_charter_metadata(str(row["charter_id"])))
+        out.append(new_row)
+    return out
 
 
 # ----------------------------- I/O -----------------------------
@@ -550,7 +491,7 @@ def run(config_module_name: str = "config_gramoty"):
     usatges_segments = segment_usatges(usatges_text, max_segment_words=cfg["MAX_SEGMENT_WORDS"])
     print(f"[gramoty] Usatges segments: {len(usatges_segments)}")
 
-    charter_segments: List[Segment] = []
+    charter_segments: List[Any] = []
     for source_name, path in cfg["GRAMOTY"].items():
         print(f"[gramoty] loading {source_name}: {path}")
         raw = load_text(path)
@@ -571,21 +512,30 @@ def run(config_module_name: str = "config_gramoty"):
     )
     print(f"[gramoty] retained {len(uc_rows)} Usatges->charter links")
 
-    print("[gramoty] projecting sources -> charters")
-    sc_rows = project_sources_to_charters(source_to_usatges, uc_rows)
-    print(f"[gramoty] projected {len(sc_rows)} source->charter links")
+    print("[gramoty] projecting source segments -> charters")
+    sc_rows = project_source_segments_to_charters(source_to_usatges, uc_rows)
+    print(f"[gramoty] projected {len(sc_rows)} source-segment->charter links")
 
-    # enrich charter metadata for plotting/sorting
-    for row in sc_rows:
-        row.update(parse_charter_metadata(row["charter_id"]))
+    direct_rows = prepare_usatges_direct_rows(uc_rows)
+    print(f"[gramoty] prepared {len(direct_rows)} direct Usatges->charter links")
+
+    graph_rows = enrich_graph_rows(sc_rows + direct_rows)
+
+    # Optional trimming for legibility, preserving direct links.
+    graph_top_n = cfg.get("GRAPH_TOP_N", 0)
+    if graph_top_n and len(graph_rows) > graph_top_n:
+        graph_rows = sorted(graph_rows, key=lambda row: (-float(row["weight"]), row["left_group"], row["charter_id"]))[:graph_top_n]
+        print(f"[gramoty] trimmed graph rows to top {graph_top_n}")
 
     save_csv(uc_rows, out_dir / "usatges_to_gramoty.csv")
     save_csv(sc_rows, out_dir / "sources_to_gramoty.csv")
+    save_csv(graph_rows, out_dir / "graph_rows_gramoty.csv")
 
     graph, graph_paths = build_gramoty_graph(
-        sc_rows,
+        graph_rows,
         out_dir=out_dir,
         graph_name="gramoty_graph",
+        source_names_ru=cfg.get("SOURCE_NAMES_RU") or cfg.get("SOURCE_NAMES_RU_SHORT") or {},
     )
 
     print(f"[gramoty] graph nodes: {graph.number_of_nodes()}, edges: {graph.number_of_edges()}")
@@ -595,7 +545,8 @@ def run(config_module_name: str = "config_gramoty"):
     return {
         "config": cfg,
         "usatges_to_charters": uc_rows,
-        "sources_to_charters": sc_rows,
+        "source_segments_to_charters": sc_rows,
+        "graph_rows": graph_rows,
         "graph": graph,
         "paths": graph_paths,
     }
