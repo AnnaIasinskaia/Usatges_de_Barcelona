@@ -165,8 +165,8 @@ def segment_source_text(text: str, source_name: str, cfg: Optional[Dict[str, Any
 
 
 def segment_charter_text(text: str, source_name: str, max_segment_words: int = 200):
-    mod = importlib.import_module("seg_gramoty_stable")
-    for candidate in ("segment_gramoty_stable", "segment_gramoty", f"segment_{source_name.lower()}"):
+    mod = importlib.import_module("seg_gramoty_stable_merged")
+    for candidate in ("seg_gramoty_stable_merged", "segment_gramoty", f"segment_{source_name.lower()}"):
         if hasattr(mod, candidate):
             return _call_with_supported_kwargs(
                 getattr(mod, candidate),
@@ -182,7 +182,7 @@ def segment_charter_text(text: str, source_name: str, max_segment_words: int = 2
                 source_name,
                 max_segment_words=max_segment_words,
             )
-    raise RuntimeError("Could not find a charter segmenter in seg_gramoty_stable.py")
+    raise RuntimeError("Could not find a charter segmenter in seg_gramoty_stable_merged.py")
 
 
 # ----------------------------- normalization -----------------------------

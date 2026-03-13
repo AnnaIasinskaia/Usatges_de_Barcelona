@@ -5,24 +5,20 @@ graph_builder_gramoty.py
 
 Graph builder for the charters study.
 
-Expected rows format:
+Rows format:
     {
-        "left_id": "CorpusJuris" | "Usatges",
-        "left_group": "CorpusJuris" | "Usatges",
-        "charter_id": "Gramoty911_D336_Y1066MjunD10",
+        "left_id": "LexVisigoth_S20" | "Us_4,1",
+        "left_group": "LexVisigoth" | "Usatges",
+        "charter_id": "Gramoty911_D1_Y812MabrD2",
         "weight": 0.123,
-        "edge_type": "source_direct" | "usatge_direct",
-        "volume": "I" | "II" | "?",     # optional, can be re-derived
-        "year": 812,                         # optional, can be re-derived
+        "edge_type": "source_direct" | "usatge_direct" | "source_projection",
+        "volume": "I" | "II" | "?",
+        "year": 812,
+        "doc_no": 1,
     }
-
-Layout:
-    - left column: source groups + Usatges
-    - right column: charter documents sorted by date/year
 """
 from __future__ import annotations
 
-import math
 import re
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
@@ -81,23 +77,35 @@ def _charter_year(seg_id: str, row: Dict[str, Any]) -> int:
     return 999999
 
 
-def _charter_doc_no(seg_id: str) -> int:
+def _charter_doc_no(seg_id: str, row: Dict[str, Any]) -> int:
+    if row.get("doc_no") is not None:
+        try:
+            return int(row["doc_no"])
+        except Exception:
+            pass
     m = re.search(r"_D(\d+)", str(seg_id))
     return int(m.group(1)) if m else 999999
 
 
-def _short_charter_label(seg_id: str) -> str:
-    m = re.search(r"_D(\d+)", str(seg_id))
-    if m:
-        return f"D{m.group(1)}"
-    return str(seg_id)
+def _charter_display_label(seg_id: str, row: Dict[str, Any]) -> str:
+    vol = _charter_volume(seg_id, row)
+    doc_no = _charter_doc_no(seg_id, row)
+    if doc_no == 999999:
+        return str(seg_id)
+    prefix = "A" if vol == "I" else "B" if vol == "II" else "D"
+    return f"{prefix}{doc_no}"
 
 
 def _left_group(left_id: str, row: Dict[str, Any]) -> str:
     group = row.get("left_group")
     if group:
         return str(group)
-    return str(left_id)
+    text = str(left_id)
+    if text.startswith("Us_") or text.lower().startswith("usatge"):
+        return "Usatges"
+    if "_S" in text:
+        return text.split("_S", 1)[0]
+    return text.split("_", 1)[0]
 
 
 def _left_color(group: str) -> str:
@@ -110,148 +118,204 @@ def _group_sort_key(group: str):
     return (len(LEFT_GROUP_ORDER) + 1, group)
 
 
-def _positions_for_graph(left_nodes: List[str], right_nodes: List[str], right_meta: Dict[str, Dict[str, Any]]):
+def _positions_for_graph(
+    left_nodes: List[str],
+    left_meta: Dict[str, Dict[str, Any]],
+    right_nodes: List[str],
+    right_meta: Dict[str, Dict[str, Any]],
+):
     pos: Dict[str, Tuple[float, float]] = {}
 
-    for i, node in enumerate(sorted(left_nodes, key=_group_sort_key)):
-        pos[node] = (0.0, float(-i * 1.2))
+    # Left column: grouped sources / Usatges
+    grouped: Dict[str, List[str]] = {}
+    for node in left_nodes:
+        group = left_meta[node]["group"]
+        grouped.setdefault(group, []).append(node)
 
-    right_sorted = sorted(
-        right_nodes,
-        key=lambda node: (
-            right_meta[node].get("year", 999999),
-            _charter_doc_no(node),
-            str(node),
-        ),
-    )
-    for i, node in enumerate(right_sorted):
-        pos[node] = (1.0, float(-i))
+    y = 0.0
+    group_gap = 1.85
+    node_gap = 1.2
+    for group in sorted(grouped.keys(), key=_group_sort_key):
+        nodes = sorted(grouped[group])
+        for node in nodes:
+            pos[node] = (0.0, -y)
+            y += node_gap
+        y += group_gap
+
+    # Right column: two separate blocks
+    vol_i = [n for n in right_nodes if right_meta[n].get("volume") == "I"]
+    vol_ii = [n for n in right_nodes if right_meta[n].get("volume") == "II"]
+    vol_other = [n for n in right_nodes if right_meta[n].get("volume") not in {"I", "II"}]
+
+    vol_i_sorted = sorted(vol_i, key=lambda n: (_charter_doc_no(n, right_meta[n]), str(n)))
+    vol_ii_sorted = sorted(vol_ii, key=lambda n: (_charter_doc_no(n, right_meta[n]), str(n)))
+    vol_other_sorted = sorted(vol_other, key=lambda n: (_charter_doc_no(n, right_meta[n]), str(n)))
+
+    right_y = 0.0
+    right_gap = 1.8
+
+    for node in vol_i_sorted:
+        pos[node] = (1.0, -right_y)
+        right_y += 1.0
+
+    if vol_i_sorted and vol_ii_sorted:
+        right_y += right_gap
+
+    for node in vol_ii_sorted:
+        pos[node] = (1.0, -right_y)
+        right_y += 1.0
+
+    if vol_other_sorted:
+        right_y += right_gap
+        for node in vol_other_sorted:
+            pos[node] = (1.0, -right_y)
+            right_y += 1.0
 
     return pos
 
 
-def build_gramoty_graph(rows: List[Dict[str, Any]], out_dir: Path, graph_name: str = "gramoty_graph", source_names_ru: Dict[str, str] | None = None):
+def build_gramoty_graph(
+    rows: List[Dict[str, Any]],
+    out_dir: Path,
+    graph_name: str = "gramoty_graph",
+    source_names_ru: Dict[str, str] | None = None,
+):
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    source_names_ru = source_names_ru or {}
-
-    g = nx.DiGraph()
-    right_meta: Dict[str, Dict[str, Any]] = {}
-
-    for row in rows:
-        left_group = _left_group(str(row.get("left_id", row["left_group"])), row)
-        charter = str(row["charter_id"])
-        weight = _safe_float(row.get("weight", 1.0), 1.0)
-        edge_type = str(row.get("edge_type", "source_direct"))
-        volume = _charter_volume(charter, row)
-        year = _charter_year(charter, row)
-
-        g.add_node(
-            left_group,
-            kind="left",
-            left_group=left_group,
-            bipartite="left",
-            color=_left_color(left_group),
-            label=source_names_ru.get(left_group, left_group),
-        )
-        g.add_node(
-            charter,
-            kind="charter",
-            bipartite="right",
-            volume=volume,
-            year=year,
-            color=VOLUME_COLORS.get(volume, VOLUME_COLORS["?"]),
-            label=_short_charter_label(charter),
-        )
-        g.add_edge(
-            left_group,
-            charter,
-            weight=weight,
-            edge_type=edge_type,
-            best_left_id=str(row.get("best_left_id", "")),
-            hit_count=int(row.get("hit_count", 1)),
-        )
-
-        right_meta[charter] = {"volume": volume, "year": year}
-
-    left_nodes = [n for n, a in g.nodes(data=True) if a.get("bipartite") == "left"]
-    right_nodes = [n for n, a in g.nodes(data=True) if a.get("bipartite") == "right"]
-    pos = _positions_for_graph(left_nodes, right_nodes, right_meta)
 
     gexf_path = out_dir / f"{graph_name}.gexf"
-    nx.write_gexf(g, gexf_path)
-
     png_path = out_dir / f"{graph_name}.png"
-    plt.figure(figsize=(18, max(10, len(right_nodes) * 0.18, len(left_nodes) * 0.6)))
 
-    left_node_list = [n for n in g.nodes() if g.nodes[n].get("bipartite") == "left"]
-    right_node_list = [n for n in g.nodes() if g.nodes[n].get("bipartite") == "right"]
+    G = nx.DiGraph()
 
+    source_names_ru = source_names_ru or {}
+
+    left_nodes: Dict[str, Dict[str, Any]] = {}
+    right_nodes: Dict[str, Dict[str, Any]] = {}
+
+    for row in rows:
+        left_id = str(row["left_id"])
+        left_group = _left_group(left_id, row)
+        charter_id = str(row["charter_id"])
+        weight = _safe_float(row.get("weight", 0.0), 0.0)
+        edge_type = str(row.get("edge_type", "source_direct"))
+
+        left_nodes[left_id] = {
+            "kind": "left",
+            "group": left_group,
+            "display_label": source_names_ru.get(left_group, left_group),
+            "color": _left_color(left_group),
+        }
+        right_nodes[charter_id] = {
+            "kind": "charter",
+            "volume": _charter_volume(charter_id, row),
+            "year": _charter_year(charter_id, row),
+            "doc_no": _charter_doc_no(charter_id, row),
+            "display_label": _charter_display_label(charter_id, row),
+            "color": VOLUME_COLORS.get(_charter_volume(charter_id, row), VOLUME_COLORS["?"]),
+        }
+
+        G.add_node(left_id, **left_nodes[left_id])
+        G.add_node(charter_id, **right_nodes[charter_id])
+        G.add_edge(left_id, charter_id, weight=weight, edge_type=edge_type)
+
+    left_node_list = sorted(left_nodes.keys(), key=lambda n: _group_sort_key(left_nodes[n]["group"]))
+    right_node_list = list(right_nodes.keys())
+    pos = _positions_for_graph(left_node_list, left_nodes, right_node_list, right_nodes)
+
+    fig_h = max(12, 0.55 * max(len(left_node_list), len(right_node_list)) + 4)
+    plt.figure(figsize=(18, fig_h))
+    ax = plt.gca()
+    ax.set_facecolor("#f7f7f7")
+
+    # Nodes
     nx.draw_networkx_nodes(
-        g,
-        pos,
-        nodelist=left_node_list,
-        node_color=[g.nodes[n].get("color", "#cccccc") for n in left_node_list],
-        node_size=180,
-        alpha=0.95,
+        G, pos, nodelist=left_node_list,
+        node_size=280, node_color=[left_nodes[n]["color"] for n in left_node_list],
+        linewidths=0.8, edgecolors="white"
     )
     nx.draw_networkx_nodes(
-        g,
-        pos,
-        nodelist=right_node_list,
-        node_color=[g.nodes[n].get("color", "#cccccc") for n in right_node_list],
-        node_size=420,
-        alpha=0.95,
+        G, pos, nodelist=right_node_list,
+        node_size=520, node_color=[right_nodes[n]["color"] for n in right_node_list],
+        linewidths=0.8, edgecolors="white"
     )
 
-    for edge_type, alpha in (("source_direct", 0.35), ("usatge_direct", 0.60)):
-        edgelist = [(u, v) for u, v, a in g.edges(data=True) if a.get("edge_type") == edge_type]
-        if not edgelist:
-            continue
-        edge_colors = [g.nodes[u].get("color", "#999999") for u, v in edgelist]
-        edge_widths = [max(0.8, math.sqrt(_safe_float(g.edges[u, v].get("weight", 1.0))) * 2.6) for u, v in edgelist]
+    # Edges
+    edge_groups = {}
+    for u, v, d in G.edges(data=True):
+        edge_groups.setdefault(d.get("edge_type", "source_direct"), []).append((u, v, d))
+
+    for edge_type, triples in edge_groups.items():
+        edgelist = [(u, v) for u, v, _ in triples]
+        widths = [max(0.6, min(3.2, 0.8 + 2.2 * _safe_float(d.get("weight", 0.0)))) for _, _, d in triples]
+        edge_color = None
+        alpha = 0.35
+        if edge_type == "usatge_direct":
+            edge_color = LEFT_GROUP_COLORS["Usatges"]
+            alpha = 0.55
         nx.draw_networkx_edges(
-            g,
-            pos,
+            G, pos,
             edgelist=edgelist,
-            edge_color=edge_colors,
-            width=edge_widths,
+            width=widths,
+            edge_color=edge_color,
             alpha=alpha,
             arrows=True,
-            arrowsize=11,
-            connectionstyle="arc3,rad=0.04",
+            arrowstyle="-|>",
+            arrowsize=12,
+            connectionstyle="arc3,rad=0.03",
         )
 
-    nx.draw_networkx_labels(
-        g,
-        pos,
-        labels={n: g.nodes[n].get("label", n) for n in left_node_list},
-        font_size=10,
-        horizontalalignment="right",
-    )
-    nx.draw_networkx_labels(
-        g,
-        pos,
-        labels={n: g.nodes[n].get("label", n) for n in right_node_list},
-        font_size=8,
-    )
+    # Labels: place away from nodes
+    for node in left_node_list:
+        x, y = pos[node]
+        ax.text(
+            x - 0.03, y, left_nodes[node]["display_label"],
+            fontsize=15, ha="right", va="center",
+        )
 
-    legend_handles = []
+    for node in right_node_list:
+        x, y = pos[node]
+        ax.text(
+            x + 0.018, y + 0.10, right_nodes[node]["display_label"],
+            fontsize=14, ha="left", va="center",
+        )
+
+    # Volume group labels on right
+    vol_i_nodes = [n for n in right_node_list if right_nodes[n]["volume"] == "I"]
+    vol_ii_nodes = [n for n in right_node_list if right_nodes[n]["volume"] == "II"]
+    
+
+    # Title
+    plt.title("Заимствования в грамоты: источники и Usatges → грамоты", fontsize=24, fontweight="bold", pad=28)
+
+    # Legend in upper center, under title
+    legend_patches = []
+    seen = set()
     for group in LEFT_GROUP_ORDER:
-        if group in left_nodes:
-            legend_handles.append(mpatches.Patch(color=_left_color(group), label=source_names_ru.get(group, group)))
-    if any(right_meta[n].get("volume") == "I" for n in right_nodes):
-        legend_handles.append(mpatches.Patch(color=VOLUME_COLORS["I"], label="Грамоты IX–XI вв."))
-    if any(right_meta[n].get("volume") == "II" for n in right_nodes):
-        legend_handles.append(mpatches.Patch(color=VOLUME_COLORS["II"], label="Грамоты XII в."))
+        if group in {meta["group"] for meta in left_nodes.values()} and group not in seen:
+            legend_patches.append(
+                mpatches.Patch(color=LEFT_GROUP_COLORS[group], label=source_names_ru.get(group, group))
+            )
+            seen.add(group)
+    legend_patches.extend([
+        mpatches.Patch(color=VOLUME_COLORS["I"], label="Грамоты IX–XI вв."),
+        mpatches.Patch(color=VOLUME_COLORS["II"], label="Грамоты XII в."),
+    ])
 
-    if legend_handles:
-        plt.legend(handles=legend_handles, loc="upper left", framealpha=0.95)
+    plt.legend(
+        handles=legend_patches,
+        loc="upper center",
+        bbox_to_anchor=(0.5, 0.97),
+        ncol=4,
+        fontsize=13,
+        frameon=True,
+        framealpha=0.95,
+    )
 
-    plt.title("Заимствования в грамоты: источники и Usatges → грамоты", fontsize=18, weight="bold")
     plt.axis("off")
-    plt.tight_layout()
-    plt.savefig(png_path, dpi=200, bbox_inches="tight")
+    plt.tight_layout(rect=(0.02, 0.03, 0.98, 0.94))
+    plt.savefig(png_path, dpi=300, bbox_inches="tight")
     plt.close()
 
-    return g, {"gexf": gexf_path, "png": png_path}
+    nx.write_gexf(G, gexf_path)
+    return G, {"gexf": gexf_path, "png": png_path}
