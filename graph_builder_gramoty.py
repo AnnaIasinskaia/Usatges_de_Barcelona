@@ -7,9 +7,9 @@ Graph builder for the charters study.
 
 Rows format:
     {
-        "left_id": "LexVisigoth" | "Usatges",
+        "left_id": "LexVisigoth_S20" | "Us_4,1",
         "left_group": "LexVisigoth" | "Usatges",
-        "charter_id": "Gramoty911_doc116_Y990...",
+        "charter_id": "Gramoty911_D1_Y812MabrD2",
         "weight": 0.123,
         "edge_type": "source_direct" | "usatge_direct" | "source_projection",
         "volume": "I" | "II" | "?",
@@ -83,18 +83,17 @@ def _charter_doc_no(seg_id: str, row: Dict[str, Any]) -> int:
             return int(row["doc_no"])
         except Exception:
             pass
-    m = re.search(r"_doc(\d+)", str(seg_id), flags=re.IGNORECASE)
-    if m:
-        return int(m.group(1))
     m = re.search(r"_D(\d+)", str(seg_id))
     return int(m.group(1)) if m else 999999
 
 
 def _charter_display_label(seg_id: str, row: Dict[str, Any]) -> str:
+    vol = _charter_volume(seg_id, row)
     doc_no = _charter_doc_no(seg_id, row)
     if doc_no == 999999:
         return str(seg_id)
-    return f"{seg_id}"
+    prefix = "A" if vol == "I" else "B" if vol == "II" else "D"
+    return f"{prefix}{doc_no}"
 
 
 def _left_group(left_id: str, row: Dict[str, Any]) -> str:
@@ -127,6 +126,7 @@ def _positions_for_graph(
 ):
     pos: Dict[str, Tuple[float, float]] = {}
 
+    # Left column: grouped sources / Usatges
     grouped: Dict[str, List[str]] = {}
     for node in left_nodes:
         group = left_meta[node]["group"]
@@ -142,6 +142,7 @@ def _positions_for_graph(
             y += node_gap
         y += group_gap
 
+    # Right column: two separate blocks
     vol_i = [n for n in right_nodes if right_meta[n].get("volume") == "I"]
     vol_ii = [n for n in right_nodes if right_meta[n].get("volume") == "II"]
     vol_other = [n for n in right_nodes if right_meta[n].get("volume") not in {"I", "II"}]
@@ -227,6 +228,7 @@ def build_gramoty_graph(
     ax = plt.gca()
     ax.set_facecolor("#f7f7f7")
 
+    # Nodes
     nx.draw_networkx_nodes(
         G, pos, nodelist=left_node_list,
         node_size=280, node_color=[left_nodes[n]["color"] for n in left_node_list],
@@ -238,15 +240,14 @@ def build_gramoty_graph(
         linewidths=0.8, edgecolors="white"
     )
 
+    # Edges
     edge_groups = {}
     for u, v, d in G.edges(data=True):
         edge_groups.setdefault(d.get("edge_type", "source_direct"), []).append((u, v, d))
 
     for edge_type, triples in edge_groups.items():
         edgelist = [(u, v) for u, v, _ in triples]
-        raw_weights = [_safe_float(d.get("weight", 0.0)) for _, _, d in triples]
-        scaled_weights = [max(0.0, min(1.0, x)) for x in raw_weights]
-        widths = [max(0.6, min(3.2, 0.8 + 2.2 * x)) for x in scaled_weights]
+        widths = [max(0.6, min(3.2, 0.8 + 2.2 * _safe_float(d.get("weight", 0.0)))) for _, _, d in triples]
         edge_color = None
         alpha = 0.35
         if edge_type == "usatge_direct":
@@ -264,6 +265,7 @@ def build_gramoty_graph(
             connectionstyle="arc3,rad=0.03",
         )
 
+    # Labels: place away from nodes
     for node in left_node_list:
         x, y = pos[node]
         ax.text(
@@ -278,13 +280,15 @@ def build_gramoty_graph(
             fontsize=14, ha="left", va="center",
         )
 
-    plt.title(
-        "Заимствования в грамоты (7 шагов: BorrowScore+SW): источники и Usatges → грамоты",
-        fontsize=22,
-        fontweight="bold",
-        pad=28,
-    )
+    # Volume group labels on right
+    vol_i_nodes = [n for n in right_node_list if right_nodes[n]["volume"] == "I"]
+    vol_ii_nodes = [n for n in right_node_list if right_nodes[n]["volume"] == "II"]
+    
 
+    # Title
+    plt.title("Заимствования в грамоты: источники и Usatges → грамоты", fontsize=24, fontweight="bold", pad=28)
+
+    # Legend in upper center, under title
     legend_patches = []
     seen = set()
     for group in LEFT_GROUP_ORDER:
