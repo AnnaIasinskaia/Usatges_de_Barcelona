@@ -1,7 +1,7 @@
 """Segmenter for Lex Visigothorum."""
 import re
-from seg_common import clean_text, is_apparatus_line, group_segments, validate_segments
-from seg_default import segment_default
+from .seg_common import clean_text, is_apparatus_line, group_segments, validate_segments
+from .seg_default import segment_default
 
 _LV_APPARATUS = re.compile(
     r'(?:'

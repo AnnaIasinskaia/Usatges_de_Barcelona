@@ -1,7 +1,7 @@
 """Segmenter for Isidori Etymologiae."""
 import re
-from seg_common import clean_text, group_segments, validate_segments
-from seg_default import segment_default
+from .seg_common import clean_text, group_segments, validate_segments
+from .seg_default import segment_default
 
 
 def segment_etymologiae(text, source_name, max_segment_words=200):

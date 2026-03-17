@@ -213,13 +213,13 @@ def _call_with_supported_kwargs(func: Callable, *args, **kwargs):
 
 
 def segment_usatges(text: str, max_segment_words: int = 200) -> List[Segment]:
-    mod = importlib.import_module("usatges_segmenter")
+    mod = importlib.import_module("segmenters.seg_usatges")
     if hasattr(mod, "segment_usatges"):
         return _call_with_supported_kwargs(mod.segment_usatges, text, max_segment_words=max_segment_words)
     for name in dir(mod):
         if name.startswith("segment_") and callable(getattr(mod, name)):
             return _call_with_supported_kwargs(getattr(mod, name), text, max_segment_words=max_segment_words)
-    raise RuntimeError("Could not find segment_usatges in usatges_segmenter.py")
+    raise RuntimeError("Could not find segment_usatges in segmenters.seg_usatges")
 
 
 def segment_source_text(text: str, source_name: str, cfg: Optional[Dict[str, Any]] = None, max_segment_words: int = 120):
@@ -233,7 +233,7 @@ def segment_source_text(text: str, source_name: str, cfg: Optional[Dict[str, Any
 
 
 def segment_charter_text(text: str, source_name: str, max_segment_words: int = 200):
-    mod = importlib.import_module("seg_gramoty_stable_merged")
+    mod = importlib.import_module("segmenters.seg_gramoty_stable_merged")
     for candidate in ("seg_gramoty_stable_merged", "segment_gramoty", f"segment_{source_name.lower()}"):
         if hasattr(mod, candidate):
             return _call_with_supported_kwargs(

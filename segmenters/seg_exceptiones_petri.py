@@ -1,7 +1,7 @@
 """Segmenter for Exceptiones Legum Romanorum Petri."""
 import re
-from seg_common import clean_text, is_apparatus_line, group_segments, validate_segments
-from seg_default import segment_default
+from .seg_common import clean_text, is_apparatus_line, group_segments, validate_segments
+from .seg_default import segment_default
 
 
 def segment_exceptiones_petri(text, source_name, max_segment_words=200):

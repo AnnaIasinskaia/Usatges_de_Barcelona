@@ -243,6 +243,12 @@ def segment_tortosa_latin_only(text: str) -> List[Tuple[str, str]]:
     print(f"  → Latin/mixed only: {len(latin)} articles")
     return latin
 
+def segment_costums_tortosa(text: str, source_name: str = "", max_words: int = 0) -> List[Tuple[str, str]]:
+    """
+    Wrapper for compatibility with source_segmenters registry.
+    Ignores source_name and max_words, returns Latin/mixed articles.
+    """
+    return segment_tortosa_latin_only(text)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # CLI / debug

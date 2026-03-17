@@ -2,7 +2,7 @@
 Step 1-2: Text loading, normalization, lemmatization.
 
 Segmentation:
-  - usatges_segmenter.py  (Bastardas edition)
+  - segmenters.seg_usatges  (Bastardas edition)
   - source_segmenters.py  (dispatcher -> seg_*.py per source)
 """
 import re
@@ -24,7 +24,7 @@ except ImportError:
 
 # Re-export segmenters so pipeline.py can do:
 #   from preprocessing import segment_usatges, segment_source
-from usatges_segmenter import segment_usatges  # noqa: F401
+from segmenters.seg_usatges import segment_usatges  # noqa: F401
 from source_segmenters import segment_source    # noqa: F401
 
 __all__ = [

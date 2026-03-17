@@ -1,5 +1,5 @@
 """Default segmenter: split by paragraphs, merge to target word count."""
-from seg_common import clean_text, is_apparatus_line, validate_segments
+from .seg_common import clean_text, is_apparatus_line, validate_segments
 
 
 def segment_default(text, source_name, max_segment_words=150):
