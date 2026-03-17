@@ -15,7 +15,7 @@ from segmenters.seg_exceptiones_petri import segment_exceptiones_petri
 from segmenters.seg_etymologiae import segment_etymologiae
 from segmenters.seg_common import validate_segments
 from segmenters.seg_costums_tortosa import segment_costums_tortosa
-from segmenters.seg_consuetudines_numbered import segment_consuetudines_numbered
+
 # IMPORTANT:
 # Gramoty must always use the new merged segmenter explicitly.
 # No dynamic import / fallback probing is allowed here, otherwise an older
@@ -39,10 +39,6 @@ _REGISTRY = {
     "GramotyVol1": segment_gramoty_merged,
     "GramotyVol2": segment_gramoty_merged,
     "CostumsTortosa":   segment_costums_tortosa,
-    "CostMiraveta":     segment_consuetudines_numbered,
-    "CostLleida":       segment_consuetudines_numbered,
-    "CostTarregi":      segment_consuetudines_numbered,
-    "RecogProc":        segment_consuetudines_numbered,
 }
 
 

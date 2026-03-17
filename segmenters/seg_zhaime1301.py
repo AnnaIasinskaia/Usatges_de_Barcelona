@@ -150,6 +150,44 @@ def segment_zhaime1301_text(
 
 # ── Analysis + save ───────────────────────────────────────────────────────────
 
+def segment_zhaime1301_unified(
+    source_file,
+    source_name,
+    min_words=10,
+    max_words=150
+):
+    """
+    Унифицированная функция сегментации для Pragmática de Jaime II 1301.
+    Соответствует контракту из INTERFACE.md.
+
+    Параметры
+    ---------
+    source_file : str или Path
+        Путь к файлу с текстом (формат .txt или .docx).
+    source_name : str
+        Имя источника (например, "PragmatikaZhaumeII1301").
+    min_words : int, optional
+        Минимальное количество слов в сегменте (по умолчанию 10).
+    max_words : int, optional
+        Максимальное количество слов в сегменте (по умолчанию 150).
+
+    Возвращает
+    ----------
+    List[Tuple[str, str]]
+        Список сегментов в формате (segment_id, segment_text).
+    """
+    from .seg_common import read_source_file, apply_word_limits, validate_segments
+    text = read_source_file(source_file)
+    raw_triples = segment_zhaime1301_text(text, debug=False)
+    # Преобразуем тройки (doc_id, article_id, text) в пары (id, text)
+    segments = []
+    for doc_id, art_id, art_text in raw_triples:
+        seg_id = f"{source_name}_Doc{doc_id}_Art{art_id}"
+        segments.append((seg_id, art_text))
+    # Применяем ограничения по словам
+    filtered = apply_word_limits(segments, min_words, max_words)
+    # Валидация
+    return validate_segments(filtered, source_name)
 def analyze_and_save_1301(text: str, output_file: str) -> List[Tuple[str, str, str]]:
     """Analyse segmentation, print stats, save to file."""
 

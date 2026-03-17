@@ -223,6 +223,44 @@ def parse_expected_docs_from_file(text: str) -> Set[int]:
     return all_nums
 
 
+def segment_gramoty_12_unified(
+    source_file,
+    source_name,
+    min_words=10,
+    max_words=150
+):
+    """
+    Унифицированная функция сегментации для Gramoty XII.
+    Соответствует контракту из INTERFACE.md.
+
+    Параметры
+    ---------
+    source_file : str или Path
+        Путь к файлу с текстом (формат .txt или .docx).
+    source_name : str
+        Имя источника (например, "Gramoty12").
+    min_words : int, optional
+        Минимальное количество слов в сегменте (по умолчанию 10).
+    max_words : int, optional
+        Максимальное количество слов в сегменте (по умолчанию 150).
+
+    Возвращает
+    ----------
+    List[Tuple[str, str]]
+        Список сегментов в формате (segment_id, segment_text).
+    """
+    from .seg_common import read_source_file, apply_word_limits, validate_segments
+    text = read_source_file(source_file)
+    raw_pairs = segment_gramoty_12(text, debug=False)
+    # Преобразуем пары (doc_num, text) в пары (id, text)
+    segments = []
+    for doc_num, doc_text in raw_pairs:
+        seg_id = f"{source_name}_Doc{doc_num}"
+        segments.append((seg_id, doc_text))
+    # Применяем ограничения по словам
+    filtered = apply_word_limits(segments, min_words, max_words)
+    # Валидация
+    return validate_segments(filtered, source_name)
 def analyze_documents_12(text: str, expected_count: int = 873):
     """
     Analyze Gramoty12 segmentation and provide debugging info.

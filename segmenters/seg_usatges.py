@@ -304,6 +304,39 @@ def segment_usatges(text: str) -> List[Tuple[str, str]]:
 #  Test / Debug
 # =====================================================================
 
+def segment_usatges_unified(
+    source_file,
+    source_name,
+    min_words=10,
+    max_words=150
+):
+    """
+    Унифицированная функция сегментации для Usatges de Barcelona.
+    Соответствует контракту из INTERFACE.md.
+
+    Параметры
+    ---------
+    source_file : str или Path
+        Путь к файлу с текстом (формат .txt или .docx).
+    source_name : str
+        Имя источника (например, "UsatgesBarcelona").
+    min_words : int, optional
+        Минимальное количество слов в сегменте (по умолчанию 10).
+    max_words : int, optional
+        Максимальное количество слов в сегменте (по умолчанию 150).
+
+    Возвращает
+    ----------
+    List[Tuple[str, str]]
+        Список сегментов в формате (segment_id, segment_text).
+    """
+    from .seg_common import read_source_file, apply_word_limits, validate_segments
+    text = read_source_file(source_file)
+    raw_segments = segment_usatges(text)
+    # Применяем ограничения по словам
+    filtered = apply_word_limits(raw_segments, min_words, max_words)
+    # Валидация
+    return validate_segments(filtered, source_name)
 if __name__ == "__main__":
     test_file = Path("data/Bastardas Usatges de Barcelona_djvu.txt")
     if test_file.exists():

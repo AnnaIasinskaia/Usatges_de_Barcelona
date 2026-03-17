@@ -209,5 +209,23 @@ def main():
         print(f"Error: {file_lleida} not found")
 
 
+def segment_lleida_unified(
+    source_file, source_name, min_words=10, max_words=150
+):
+    """
+    Унифицированная сегментация Lleida.
+    Читает файл, применяет ограничения по словам.
+    """
+    from .seg_common import read_source_file, apply_word_limits, validate_segments
+
+    text = read_source_file(source_file)
+    # Вызов старого сегментера с debug=False
+    raw_segments = segment_lleida(text, debug=False)
+
+    # Применяем ограничения по словам
+    filtered = apply_word_limits(raw_segments, min_words, max_words)
+
+    # Валидация
+    return validate_segments(filtered, source_name)
 if __name__ == '__main__':
     main()

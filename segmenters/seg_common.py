@@ -84,3 +84,37 @@ def validate_segments(segments, source_name):
         if len(seg_text.strip()) >= 20:
             valid.append((seg_id, seg_text.strip()))
     return valid
+
+def read_source_file(source_file):
+    """
+    Read text from .txt or .docx file.
+    """
+    from pathlib import Path
+    path = Path(source_file)
+    if path.suffix == ".docx":
+        import docx
+        doc = docx.Document(str(path))
+        text = "\n".join(par.text for par in doc.paragraphs)
+    else:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    return text
+
+
+def apply_word_limits(segments, min_words=10, max_words=150):
+    """
+    Apply min/max word limits to a list of (segment_id, segment_text).
+    Returns a new list where each segment satisfies the limits.
+    """
+    result = []
+    for seg_id, seg_text in segments:
+        words = seg_text.split()
+        if len(words) < min_words:
+            continue
+        if len(words) <= max_words:
+            result.append((seg_id, seg_text))
+        else:
+            # Split into chunks of max_words
+            for i, start in enumerate(range(0, len(words), max_words), 1):
+                chunk = " ".join(words[start:start + max_words])
+                result.append((f"{seg_id}_P{i}", chunk))
+    return result

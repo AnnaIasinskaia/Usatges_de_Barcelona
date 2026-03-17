@@ -149,6 +149,24 @@ def _clean_text(text: str) -> str:
     return text.strip()
 
 
+def segment_orty_unified(
+    source_file, source_name, min_words=10, max_words=150
+):
+    """
+    Унифицированная сегментация Orty.
+    Читает файл, применяет ограничения по словам.
+    """
+    from .seg_common import read_source_file, apply_word_limits, validate_segments
+
+    text = read_source_file(source_file)
+    # Вызов старого сегментера с min_words (передаём min_words)
+    raw_segments = segment_orty(text, source_name, min_words=min_words)
+
+    # Применяем ограничения по словам (max_words и дополнительная фильтрация min_words)
+    filtered = apply_word_limits(raw_segments, min_words, max_words)
+
+    # Валидация
+    return validate_segments(filtered, source_name)
 if __name__ == "__main__":
     from pathlib import Path
     import docx

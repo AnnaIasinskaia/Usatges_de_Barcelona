@@ -260,6 +260,46 @@ def validate_segments(segments: List[Dict[str, Any]],
     return issues
 
 
+def segment_gramoty_unified(
+    source_file,
+    source_name,
+    min_words=10,
+    max_words=150
+):
+    """
+    Унифицированная функция сегментации для Gramoty (объединённая).
+    Соответствует контракту из INTERFACE.md.
+
+    Параметры
+    ---------
+    source_file : str или Path
+        Путь к файлу с текстом (формат .txt или .docx).
+    source_name : str
+        Имя источника (например, "Gramoty911" или "Gramoty12").
+    min_words : int, optional
+        Минимальное количество слов в сегменте (по умолчанию 10).
+    max_words : int, optional
+        Максимальное количество слов в сегменте (по умолчанию 150).
+
+    Возвращает
+    ----------
+    List[Tuple[str, str]]
+        Список сегментов в формате (segment_id, segment_text).
+    """
+    from .seg_common import read_source_file, apply_word_limits, validate_segments
+    text = read_source_file(source_file)
+    # Используем существующую функцию segment_gramoty, которая возвращает словари
+    raw_dicts = segment_gramoty(text, source_name=source_name, min_length=1)
+    # Преобразуем словари в пары (id, text)
+    segments = []
+    for d in raw_dicts:
+        seg_id = d['id']  # уже содержит source_name_doc...
+        seg_text = d['text']
+        segments.append((seg_id, seg_text))
+    # Применяем ограничения по словам
+    filtered = apply_word_limits(segments, min_words, max_words)
+    # Валидация
+    return validate_segments(filtered, source_name)
 def main():
     test_files = [
         (Path('data/Gramoty911.txt'), 'gramoty911', (1, 552)),

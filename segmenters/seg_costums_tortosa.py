@@ -246,14 +246,35 @@ def segment_tortosa_latin_only(text: str) -> List[Tuple[str, str]]:
 def segment_costums_tortosa(text: str, source_name: str = "", max_words: int = 0) -> List[Tuple[str, str]]:
     """
     Wrapper for compatibility with source_segmenters registry.
-    Ignores source_name and max_words, returns Latin/mixed articles.
+    Ignores source_name and max_words, returns all articles.
     """
-    return segment_tortosa_latin_only(text)
+    all_segs = segment_tortosa(text)
+    return [(seg_id, art_text) for seg_id, art_text, _ in all_segs]
 
 # ─────────────────────────────────────────────────────────────────────────────
 # CLI / debug
 # ─────────────────────────────────────────────────────────────────────────────
 
+def segment_costums_tortosa_unified(
+    source_file, source_name, min_words=10, max_words=150
+):
+    """
+    Унифицированная сегментация Tortosa.
+    Читает файл, применяет ограничения по словам.
+    """
+    from .seg_common import read_source_file, apply_word_limits, validate_segments
+
+    text = read_source_file(source_file)
+    # Вызов segment_tortosa, который возвращает тройки (id, text, lang)
+    raw_triples = segment_tortosa(text)
+    # Преобразуем в пары, отбрасывая язык
+    raw_segments = [(seg_id, seg_text) for seg_id, seg_text, _ in raw_triples]
+
+    # Применяем ограничения по словам
+    filtered = apply_word_limits(raw_segments, min_words, max_words)
+
+    # Валидация
+    return validate_segments(filtered, source_name)
 if __name__ == '__main__':
     import sys
     from collections import Counter
