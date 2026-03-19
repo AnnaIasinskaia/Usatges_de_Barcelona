@@ -557,6 +557,26 @@ def write_csv(rows: Sequence[Dict[str, Any]], path: Path) -> None:
             w.writerow(r)
 
 
+
+def _make_gexf_safe_attrs(attrs: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Приводит атрибуты узла/ребра к типам, которые умеет писать networkx.write_gexf.
+    В частности:
+    - tuple/list/dict -> строка
+    - Path -> строка
+    - None -> пустая строка
+    Простые скаляры (str/int/float/bool) оставляются как есть.
+    """
+    safe: Dict[str, Any] = {}
+    for key, value in attrs.items():
+        if isinstance(value, (str, int, float, bool)):
+            safe[key] = value
+        elif value is None:
+            safe[key] = ""
+        else:
+            safe[key] = repr(value)
+    return safe
+
 def run_experiment(
     config_module: Any,
     experiment_id: str,
@@ -796,7 +816,36 @@ def run_experiment(
         if bool(output_cfg.get("write_gexf")):
             path = out_dir / "graph.gexf"
             logger.log(f"write gexf: {path}")
-            nx.write_gexf(G, path)
+
+            # Для GEXF нужен отдельный "безопасный" граф:
+            # networkx.write_gexf не принимает tuple/list/dict как значения атрибутов.
+            G_gexf = nx.DiGraph()
+            for nid, meta in left_meta.items():
+                G_gexf.add_node(nid, **_make_gexf_safe_attrs(meta))
+            for nid, meta in right_meta.items():
+                G_gexf.add_node(nid, **_make_gexf_safe_attrs(meta))
+            for r in graph_rows:
+                u = str(r["left_node"])
+                v = str(r["right_node"])
+                if u in left_meta and v in right_meta:
+                    edge_attrs = _make_gexf_safe_attrs({
+                        "weight": float(r.get("weight", 0.0)),
+                        "hit_count": int(r.get("hit_count", 1)),
+                        "left_level": r.get("left_level", ""),
+                        "right_level": r.get("right_level", ""),
+                        "left_corpus": r.get("left_corpus", ""),
+                        "right_corpus": r.get("right_corpus", ""),
+                        "best_score": r.get("best_score", ""),
+                        "best_left_leaf_id": r.get("best_left_leaf_id", ""),
+                        "best_right_leaf_id": r.get("best_right_leaf_id", ""),
+                        "best_left_parent_id": r.get("best_left_parent_id", ""),
+                        "best_right_parent_id": r.get("best_right_parent_id", ""),
+                        "right_year": r.get("right_year", ""),
+                        "right_doc_no": r.get("right_doc_no", ""),
+                    })
+                    G_gexf.add_edge(u, v, **edge_attrs)
+
+            nx.write_gexf(G_gexf, path)
 
     viz_cfg = dict(exp.get("viz") or {})
     if bool(viz_cfg.get("enabled")) and bool(output_cfg.get("write_png")):

@@ -223,7 +223,7 @@ EXPERIMENTS = {
             "dir": OUTPUT_ROOT / "test",
             "write_detail_csv": True,
             "write_graph_csv": True,
-            "write_gexf": False,
+            "write_gexf": True,
             "write_png": True,
         },
     },
