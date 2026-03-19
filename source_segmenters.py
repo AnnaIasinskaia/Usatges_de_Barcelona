@@ -1,92 +1,95 @@
 """
 Source segmentation dispatcher.
 
-Routes to individual segmenter files based on source_name.
-Supports both classic Latin sources and gramoty corpora.
+Маршрутизация только на новые *_unified сегментеры, которые работают
+с путями к файлам, а не с уже загруженными текстами.
+
+Опора — на список сегментеров и source_name из test_unified_segmenters.py.
+Никаких алиасов вроде Gramoty_I / GramotyVol1 и т.п. здесь больше нет.
 """
 
-import logging
+from __future__ import annotations
 
-from segmenters.seg_default import segment_default
-from segmenters.seg_evangelium import segment_evangelium
-from segmenters.seg_corpus_juris import segment_corpus_juris
-from segmenters.seg_lex_visigothorum import segment_lex_visigothorum
-from segmenters.seg_exceptiones_petri import segment_exceptiones_petri
-from segmenters.seg_etymologiae import segment_etymologiae
-from segmenters.seg_common import validate_segments
-from segmenters.seg_costums_tortosa import segment_costums_tortosa
+from pathlib import Path
+from typing import Callable
 
-# IMPORTANT:
-# Gramoty must always use the new merged segmenter explicitly.
-# No dynamic import / fallback probing is allowed here, otherwise an older
-# implementation could be picked up by accident.
-from segmenters.seg_gramoty_stable_merged import segment_gramoty as segment_gramoty_merged
 
-log = logging.getLogger(__name__)
+from segmenters.seg_corpus_juris import segment_corpus_juris_unified
+from segmenters.seg_evangelium import segment_evangelium_unified
+from segmenters.seg_lex_visigothorum import segment_lex_visigothorum_unified
+from segmenters.seg_exceptiones_petri import segment_exceptiones_petri_unified
+from segmenters.seg_etymologiae import segment_etymologiae_unified
+from segmenters.seg_costums_tortosa import segment_costums_tortosa_unified
+from segmenters.seg_lleida import segment_lleida_unified
+from segmenters.seg_miravet import segment_miravet_unified
+from segmenters.seg_orty import segment_orty_unified
+from segmenters.seg_privileges import segment_privileges_unified
+from segmenters.seg_tarregi import segment_tarregi_unified
+from segmenters.seg_vald_aran import segment_vald_aran_unified
+from segmenters.seg_zhaime1295 import segment_zhaime1295_unified
+from segmenters.seg_zhaime1301 import segment_zhaime1301_unified
+from segmenters.seg_gramoty_911 import segment_gramoty_911_unified
+from segmenters.seg_gramoty_12 import segment_gramoty_12_unified
+from segmenters.seg_usatges import segment_usatges_unified
 
-_REGISTRY = {
-    "Evangelium": segment_evangelium,
-    "CorpusJuris": segment_corpus_juris,
-    "LexVisigoth": segment_lex_visigothorum,
-    "ExceptPetri": segment_exceptiones_petri,
-    "Etymologiae": segment_etymologiae,
-    "Gramoty911": segment_gramoty_merged,
-    "Gramoty12": segment_gramoty_merged,
-    "Gramoty_I": segment_gramoty_merged,
-    "Gramoty_II": segment_gramoty_merged,
-    "Gramoty1": segment_gramoty_merged,
-    "Gramoty2": segment_gramoty_merged,
-    "GramotyVol1": segment_gramoty_merged,
-    "GramotyVol2": segment_gramoty_merged,
-    "CostumsTortosa":   segment_costums_tortosa,
+
+SegmenterFunc = Callable[[str | Path, str], list[tuple[str, str]]]
+
+
+_SEGMENTERS: dict[str, SegmenterFunc] = {
+    "CorpusJuris": segment_corpus_juris_unified,
+    "Evangelium": segment_evangelium_unified,
+    "LexVisigoth": segment_lex_visigothorum_unified,
+    "ExceptPetri": segment_exceptiones_petri_unified,
+    "Etymologiae": segment_etymologiae_unified,
+    "ObychaiTortosy1272to1279": segment_costums_tortosa_unified,
+    "ObychaiLleidy12271228": segment_lleida_unified,
+    "ObychaiMiraveta1319Fix": segment_miravet_unified,
+    "ObychaiOrty1296": segment_orty_unified,
+    "RecognovrentProceres12831284": segment_privileges_unified,
+    "ObychaiTarregi1290E": segment_tarregi_unified,
+    "ObychaiValdArana1313": segment_vald_aran_unified,
+    "PragmatikaZhaumeII1295": segment_zhaime1295_unified,
+    "PragmatikaZhaumeII1301": segment_zhaime1301_unified,
+    "Gramoty911": segment_gramoty_911_unified,
+    "Gramoty12": segment_gramoty_12_unified,
+    "UsatgesBarcelona": segment_usatges_unified,
 }
 
 
-def segment_source(text, source_name, cfg=None):
+def segment_source(source_file: str | Path, source_name: str, cfg=None) -> list[tuple[str, str]]:
     """
-    Segment a source text.
+    Запускает unified-сегментер по source_name.
 
-    Dispatches by source_name.
+    Параметры
+    ---------
+    source_file : str | Path
+        Путь к файлу источника.
+    source_name : str
+        Имя источника из test_unified_segmenters.py.
+    cfg : Any
+        Оставлено только для совместимости со старым кодом.
+        На сегментацию больше не влияет и игнорируется.
 
-    Args:
-        text: raw text string
-        source_name: key from config SOURCES / GRAMOTY dict
-        cfg: optional dict or int
-            - If dict: extracts max_segment_words from it
-            - If int: used directly as max_segment_words
-            - If None: defaults to 150
-
-    Returns:
-        list[tuple[str, str]]
-
-    Raises:
-        TypeError on bad segment types (no silent warnings).
+    Возвращает
+    ----------
+    list[tuple[str, str]]
+        Список сегментов в едином формате.
     """
-    # Normalize cfg -> max_segment_words (int)
-    if cfg is None:
-        max_words = 150
-    elif isinstance(cfg, dict):
-        max_words = cfg.get("max_segment_words", 150)
-    elif isinstance(cfg, (int, float)):
-        max_words = int(cfg)
-    else:
-        max_words = 150
+    try:
+        segmenter = _SEGMENTERS[source_name]
+    except KeyError as exc:
+        available = ", ".join(sorted(_SEGMENTERS))
+        raise KeyError(
+            f"Unknown source_name: {source_name!r}. "
+            f"Available values: {available}"
+        ) from exc
 
-    segmenter = _REGISTRY.get(source_name)
+    return segmenter(source_file, source_name)
 
-    if segmenter is not None:
-        try:
-            segments = segmenter(text, source_name, max_words)
-        except TypeError:
-            # Extra compatibility: some segmenters may accept only (text, source_name)
-            try:
-                segments = segmenter(text, source_name)
-            except TypeError:
-                # And some may accept only (text)
-                segments = segmenter(text)
-    else:
-        segments = segment_default(text, source_name, max_words)
 
-    # Final strict validation
-    segments = validate_segments(segments, source_name)
-    return segments
+def get_available_segmenters() -> dict[str, SegmenterFunc]:
+    """
+    Удобно для отладки и тестов: возвращает копию таблицы маршрутизации.
+    """
+    return dict(_SEGMENTERS)
