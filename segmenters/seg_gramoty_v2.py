@@ -225,9 +225,7 @@ def parse_expected_docs_from_file(text: str) -> Set[int]:
 
 def segment_gramoty_12_unified(
     source_file,
-    source_name,
-    min_words=10,
-    max_words=150
+    source_name
 ):
     """
     Унифицированная функция сегментации для Gramoty XII.
@@ -257,10 +255,9 @@ def segment_gramoty_12_unified(
     for doc_num, doc_text in raw_pairs:
         seg_id = f"{source_name}_Doc{doc_num}"
         segments.append((seg_id, doc_text))
-    # Применяем ограничения по словам
-    filtered = apply_word_limits(segments, min_words, max_words)
     # Валидация
-    return validate_segments(filtered, source_name)
+    return validate_segments(segments, source_name)
+
 def analyze_documents_12(text: str, expected_count: int = 873):
     """
     Analyze Gramoty12 segmentation and provide debugging info.

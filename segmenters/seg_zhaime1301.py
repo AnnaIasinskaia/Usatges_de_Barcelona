@@ -152,9 +152,7 @@ def segment_zhaime1301_text(
 
 def segment_zhaime1301_unified(
     source_file,
-    source_name,
-    min_words=10,
-    max_words=150
+    source_name
 ):
     """
     Унифицированная функция сегментации для Pragmática de Jaime II 1301.
@@ -185,9 +183,8 @@ def segment_zhaime1301_unified(
         seg_id = f"{source_name}_Doc{doc_id}_Art{art_id}"
         segments.append((seg_id, art_text))
     # Применяем ограничения по словам
-    filtered = apply_word_limits(segments, min_words, max_words)
     # Валидация
-    return validate_segments(filtered, source_name)
+    return validate_segments(segments, source_name)
 def analyze_and_save_1301(text: str, output_file: str) -> List[Tuple[str, str, str]]:
     """Analyse segmentation, print stats, save to file."""
 

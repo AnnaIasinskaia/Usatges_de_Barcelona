@@ -43,7 +43,7 @@ def segment_exceptiones_petri(text, source_name, max_segment_words=200):
 
 
 def segment_exceptiones_petri_unified(
-    source_file, source_name, min_words=10, max_words=150
+    source_file, source_name
 ):
     """
     Унифицированная сегментация Exceptiones Legum Romanorum Petri.
@@ -53,6 +53,8 @@ def segment_exceptiones_petri_unified(
 
     text = read_source_file(source_file)
     # Вызов старого сегментера с max_segment_words = max_words
+    min_words=10
+    max_words=150
     raw_segments = segment_exceptiones_petri(text, source_name, max_segment_words=max_words)
 
     # Применяем ограничения по словам

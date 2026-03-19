@@ -163,9 +163,7 @@ def _extract_text_911(doc_lines: List[str]) -> str:
 
 def segment_gramoty_911_unified(
     source_file,
-    source_name,
-    min_words=10,
-    max_words=150
+    source_name
 ):
     """
     Унифицированная функция сегментации для Gramoty IX-XI.
@@ -196,9 +194,8 @@ def segment_gramoty_911_unified(
         seg_id = f"{source_name}_Doc{doc_num}"
         segments.append((seg_id, doc_text))
     # Применяем ограничения по словам
-    filtered = apply_word_limits(segments, min_words, max_words)
     # Валидация
-    return validate_segments(filtered, source_name)
+    return validate_segments(segments, source_name)
 def analyze_and_save(text: str, expected_count: int, output_file: str):
     """
     Analyze segmentation and save results.

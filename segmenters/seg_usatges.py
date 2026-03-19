@@ -306,9 +306,7 @@ def segment_usatges(text: str) -> List[Tuple[str, str]]:
 
 def segment_usatges_unified(
     source_file,
-    source_name,
-    min_words=10,
-    max_words=150
+    source_name
 ):
     """
     Унифицированная функция сегментации для Usatges de Barcelona.
@@ -334,9 +332,8 @@ def segment_usatges_unified(
     text = read_source_file(source_file)
     raw_segments = segment_usatges(text)
     # Применяем ограничения по словам
-    filtered = apply_word_limits(raw_segments, min_words, max_words)
     # Валидация
-    return validate_segments(filtered, source_name)
+    return validate_segments(raw_segments, source_name)
 if __name__ == "__main__":
     test_file = Path("data/Bastardas Usatges de Barcelona_djvu.txt")
     if test_file.exists():

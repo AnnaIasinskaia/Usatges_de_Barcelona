@@ -214,7 +214,7 @@ def _extract_unmarked_latin(lines, start, end, base_id, min_ratio, min_words):
 
 
 def segment_tarregi_unified(
-    source_file, source_name, min_words=10, max_words=150
+    source_file, source_name
 ):
     """
     Унифицированная сегментация Tarregi.
@@ -225,12 +225,8 @@ def segment_tarregi_unified(
     text = read_source_file(source_file)
     # Вызов старого сегментера с параметрами по умолчанию (min_latin_ratio=0.70, min_words=15)
     raw_segments = segment_tarregi(text, source_name, min_latin_ratio=0.70, min_words=15)
-
-    # Применяем ограничения по словам (max_words и дополнительная фильтрация min_words)
-    filtered = apply_word_limits(raw_segments, min_words, max_words)
-
     # Валидация
-    return validate_segments(filtered, source_name)
+    return validate_segments(raw_segments, source_name)
 if __name__ == "__main__":
     import docx
     from pathlib import Path

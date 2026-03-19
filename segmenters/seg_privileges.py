@@ -182,7 +182,7 @@ def main():
 
 
 def segment_privileges_unified(
-    source_file, source_name, min_words=10, max_words=150
+    source_file, source_name
 ):
     """
     Унифицированная сегментация Privileges.
@@ -194,10 +194,7 @@ def segment_privileges_unified(
     # Вызов старого сегментера с debug=False
     raw_segments = segment_privileges(text, debug=False)
 
-    # Применяем ограничения по словам
-    filtered = apply_word_limits(raw_segments, min_words, max_words)
-
     # Валидация
-    return validate_segments(filtered, source_name)
+    return validate_segments(raw_segments, source_name)
 if __name__ == '__main__':
     main()

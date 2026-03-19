@@ -256,7 +256,7 @@ def segment_costums_tortosa(text: str, source_name: str = "", max_words: int = 0
 # ─────────────────────────────────────────────────────────────────────────────
 
 def segment_costums_tortosa_unified(
-    source_file, source_name, min_words=10, max_words=150
+    source_file, source_name
 ):
     """
     Унифицированная сегментация Tortosa.
@@ -270,11 +270,9 @@ def segment_costums_tortosa_unified(
     # Преобразуем в пары, отбрасывая язык
     raw_segments = [(seg_id, seg_text) for seg_id, seg_text, _ in raw_triples]
 
-    # Применяем ограничения по словам
-    filtered = apply_word_limits(raw_segments, min_words, max_words)
-
     # Валидация
-    return validate_segments(filtered, source_name)
+    return validate_segments(raw_segments, source_name)
+
 if __name__ == '__main__':
     import sys
     from collections import Counter

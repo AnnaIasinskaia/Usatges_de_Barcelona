@@ -264,7 +264,7 @@ def main():
 
 
 def segment_vald_aran_unified(
-    source_file, source_name, min_words=10, max_words=150
+    source_file, source_name
 ):
     """
     Унифицированная сегментация Val d'Aran.
@@ -282,10 +282,8 @@ def segment_vald_aran_unified(
         seg_id = f"{source_name}_{doc_id}_{art_id}"
         raw_segments.append((seg_id, art_text))
 
-    # Применяем ограничения по словам
-    filtered = apply_word_limits(raw_segments, min_words, max_words)
 
     # Валидация
-    return validate_segments(filtered, source_name)
+    return validate_segments(raw_segments, source_name)
 if __name__ == '__main__':
     main()

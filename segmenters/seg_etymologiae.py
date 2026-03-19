@@ -27,7 +27,7 @@ def segment_etymologiae(text, source_name, max_segment_words=200):
 
 
 def segment_etymologiae_unified(
-    source_file, source_name, min_words=10, max_words=150
+    source_file, source_name
 ):
     """
     Унифицированная сегментация Isidori Etymologiae.
@@ -37,8 +37,9 @@ def segment_etymologiae_unified(
 
     text = read_source_file(source_file)
     # Вызов старого сегментера с max_segment_words = max_words
+    min_words=10
+    max_words=150
     raw_segments = segment_etymologiae(text, source_name, max_segment_words=max_words)
-
     # Применяем ограничения по словам
     filtered = apply_word_limits(raw_segments, min_words, max_words)
 
