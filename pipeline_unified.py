@@ -418,18 +418,30 @@ def aggregate_rows(
     rows.sort(key=lambda r: (-float(r["weight"]), str(r["left_node"]), str(r["right_node"])))
     return rows
 
-
 def render_bipartite_graph(
     graph_rows: Sequence[Dict[str, Any]],
     left_nodes: Dict[str, Dict[str, Any]],
     right_nodes: Dict[str, Dict[str, Any]],
     out_png: Path,
+    straight_edges: bool = True,
+    label_left: bool = True,
+    label_right: bool = True,
+    top_n_edges: Optional[int] = None,
 ) -> None:
     if plt is None or nx is None:
         return
 
+    rows = list(graph_rows)
+    if top_n_edges is not None:
+        try:
+            k = int(top_n_edges)
+        except Exception:
+            k = None
+        if k is not None and k > 0 and len(rows) > k:
+            rows = sorted(rows, key=lambda r: -float(r.get("weight", 0.0)))[:k]
+
     G = nx.DiGraph()
-    for r in graph_rows:
+    for r in rows:
         u = str(r["left_node"])
         v = str(r["right_node"])
         w = float(r.get("weight", 0.0))
@@ -446,13 +458,22 @@ def render_bipartite_graph(
     right_list = [n for n in G.nodes() if G.nodes[n].get("side") == "right"]
 
     left_list = sorted(left_list, key=lambda n: (str(G.nodes[n].get("group", "")), str(n)))
-    right_list = sorted(right_list, key=lambda n: G.nodes[n].get("sort_key", (10**9, 10**9, str(n))))
+    right_list = sorted(
+        right_list,
+        key=lambda n: G.nodes[n].get("sort_key", (10**9, 10**9, str(n))),
+    )
 
     pos: Dict[str, Tuple[float, float]] = {}
     y = 0.0
+    last_group = None
     for n in left_list:
+        g = G.nodes[n].get("group", "")
+        if last_group is not None and g != last_group:
+            y += 0.8
         pos[n] = (0.0, -y)
         y += 1.0
+        last_group = g
+
     total_left_h = max(1.0, y)
     for i, n in enumerate(right_list):
         pos[n] = (4.0, -(i * (total_left_h / max(1, len(right_list)))))
@@ -467,19 +488,28 @@ def render_bipartite_graph(
         nodelist=left_list,
         node_size=300,
         node_color=[G.nodes[n].get("color", "#999999") for n in left_list],
-        linewidths=0.8, edgecolors="white",
+        linewidths=0.8,
+        edgecolors="white",
     )
     nx.draw_networkx_nodes(
         G, pos,
         nodelist=right_list,
         node_size=520,
         node_color=[G.nodes[n].get("color", "#999999") for n in right_list],
-        linewidths=0.8, edgecolors="white",
+        linewidths=0.8,
+        edgecolors="white",
     )
 
     edgelist = list(G.edges())
-    weights = [max(0.6, min(4.0, 0.6 + 3.0 * float(G.edges[e].get("weight", 0.0)))) for e in edgelist]
+    weights = [
+        max(0.6, min(4.0, 0.6 + 3.0 * float(G.edges[e].get("weight", 0.0))))
+        for e in edgelist
+    ]
     edge_colors = [G.nodes[u].get("color", "#666666") for (u, v) in edgelist]
+
+    edge_kwargs = {}
+    if not straight_edges:
+        edge_kwargs["connectionstyle"] = "arc3,rad=0.03"
 
     nx.draw_networkx_edges(
         G, pos,
@@ -490,14 +520,52 @@ def render_bipartite_graph(
         arrows=True,
         arrowstyle="-|>",
         arrowsize=12,
+        **edge_kwargs,
     )
 
+    if label_left:
+        for n in left_list:
+            x, y = pos[n]
+            ax.text(
+                x - 0.06, y,
+                G.nodes[n].get("label", str(n)),
+                fontsize=13,
+                ha="right",
+                va="center",
+            )
+
+    if label_right:
+        for n in right_list:
+            x, y = pos[n]
+            ax.text(
+                x + 0.06, y,
+                G.nodes[n].get("label", str(n)),
+                fontsize=12,
+                ha="left",
+                va="center",
+            )
+
+    legend = []
+    seen = set()
     for n in left_list:
-        x, y = pos[n]
-        ax.text(x - 0.06, y, G.nodes[n].get("label", str(n)), fontsize=13, ha="right", va="center")
-    for n in right_list:
-        x, y = pos[n]
-        ax.text(x + 0.06, y, G.nodes[n].get("label", str(n)), fontsize=12, ha="left", va="center")
+        lbl = G.nodes[n].get("label", str(n))
+        col = G.nodes[n].get("color", "#999999")
+        key = (lbl, col)
+        if key in seen:
+            continue
+        legend.append(Patch(facecolor=col, label=lbl))
+        seen.add(key)
+
+    if legend:
+        plt.legend(
+            handles=legend,
+            loc="upper center",
+            bbox_to_anchor=(0.5, 0.98),
+            ncol=4,
+            fontsize=12,
+            frameon=True,
+            framealpha=0.95,
+        )
 
     plt.axis("off")
     out_png.parent.mkdir(parents=True, exist_ok=True)
@@ -850,8 +918,19 @@ def run_experiment(
     viz_cfg = dict(exp.get("viz") or {})
     if bool(viz_cfg.get("enabled")) and bool(output_cfg.get("write_png")):
         path = out_dir / "graph.png"
-        logger.log(f"render png: {path}")
-        render_bipartite_graph(graph_rows, left_meta, right_meta, path)
+        logger.log(
+            f"render png: {path} (top_n_edges={viz_cfg.get('top_n_edges')}, total_graph_rows={len(graph_rows)})"
+        )
+        render_bipartite_graph(
+            graph_rows=graph_rows,
+            left_nodes=left_meta,
+            right_nodes=right_meta,
+            out_png=path,
+            straight_edges=bool(viz_cfg.get("straight_edges", True)),
+            label_left=bool(viz_cfg.get("label_left", True)),
+            label_right=bool(viz_cfg.get("label_right", True)),
+            top_n_edges=viz_cfg.get("top_n_edges"),
+        )
 
     logger.log("experiment finished")
     return {

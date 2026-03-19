@@ -27,31 +27,31 @@ OUTPUT_ROOT = Path("output_unified")
 
 CORPORA = {
     "CorpusJuris": {
-        "path": DATA_DIR / "Corpus Juris Civilis.docx",
+        "path": DATA_DIR / "Corpus_Juris_Civilis_v2.txt",
         "kind": "latin_source",
         "display_ru": "Свод\nЮстиниана",
         "color": "#d62728",
     },
     "Evangelium": {
-        "path": DATA_DIR / "Evangelium.docx",
+        "path": DATA_DIR / "Evangelium_v2.txt",
         "kind": "latin_source",
         "display_ru": "Евангелие\n(Вульгата)",
         "color": "#1f77b4",
     },
     "LexVisigoth": {
-        "path": DATA_DIR / "Lex visigothorum.docx",
+        "path": DATA_DIR / "Lex_visigothorum_v2.txt",
         "kind": "latin_source",
         "display_ru": "Вестготская\nправда",
         "color": "#9467bd",
     },
     "ExceptPetri": {
-        "path": DATA_DIR / "Exeptionis Legum Romanorum Petri.docx",
+        "path": DATA_DIR / "Exeptionis_Legum_Romanorum_Petri_v2.txt",
         "kind": "latin_source",
         "display_ru": "Извлечения\nПетра",
         "color": "#ff7f0e",
     },
     "Etymologiae": {
-        "path": DATA_DIR / "Isidori Hispalensis Episcopi Etymologiarum.docx",
+        "path": DATA_DIR / "Isidori_Hispalensis_Episcopi_Etymologiarum_v2.txt",
         "kind": "latin_source",
         "display_ru": "Этимологии\nИсидора",
         "color": "#2ca02c",
@@ -136,8 +136,8 @@ GROUPS = {
         "Evangelium",
         "CorpusJuris",
         "Etymologiae",
-        "LexVisigoth",
-        "ExceptPetri",
+        #"LexVisigoth",
+        #"ExceptPetri",
     ],
     "CATALAN_SOURCES": [
         "ObychaiTortosy1272to1279",
@@ -250,19 +250,19 @@ EXPERIMENTS = {
             "enabled": True,
         },
         "aggregation": {
-            "left_node_level": "parent",
+            "left_node_level": "corpus",
             "right_node_level": "parent",
             "weight_mode": "max",
-            "min_hits": 1,
+            "min_hits": 2,
             "keep_best_evidence": True,
         },
         "viz": {
             "enabled": True,
             "straight_edges": True,
             "edge_color_by": "left_corpus",
-            "label_left": False,
+            "label_left": True,
             "label_right": True,
-            "top_n_edges": 250,
+            "top_n_edges": 30,
         },
         "output": {
             "dir": OUTPUT_ROOT / "latin_to_usatges",
