@@ -1,281 +1,265 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Segmentation script for Pragmática de Jaime II 1295
-Format: Articles marked with Roman numerals in brackets [I], [II], etc.
-Contains multiple documents (82, 83, etc.)
+Segmenter for Pragmática de Jaime II (1295).
+
+Ориентация на PragmatikaZhaumeII1295_v2.txt.
+
+Принципы:
+- unified-выход только в формате (id, text)
+- единый стиль id: PragmatikaZhaumeII1295_ArtN
+- Art0 = преамбула документа 82
+- Art1..Art16 = статьи [I]..[XVI]
+- режем только документ 82, даже если в файле дальше идёт 83
 """
+
+from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import List, Tuple, Dict
-
-def segment_zhaime1295_text(text: str, debug: bool = False) -> List[Tuple[str, str, str]]:
-    """
-    Segment Pragmática de Jaime II 1295 into individual articles.
-
-    Args:
-        text: Full text of Pragmática
-        debug: If True, print debugging information
-
-    Returns:
-        List of (doc_id, article_id, article_text) tuples
-    """
-    lines = text.split('\n')
-
-    # Find document boundaries (82., 83., etc.)
-    doc_pattern = re.compile(r'^(\d+)\.')
-    doc_boundaries = []
-
-    for i, line in enumerate(lines):
-        match = doc_pattern.match(line.strip())
-        if match:
-            doc_num = match.group(1)
-            doc_boundaries.append({'num': doc_num, 'line': i})
-            if debug:
-                print(f"Document {doc_num} found at line {i}")
-
-    if debug:
-        print(f"\nTotal documents found: {len(doc_boundaries)}")
-
-    # Process each document separately
-    all_articles = []
-
-    for doc_idx, doc_info in enumerate(doc_boundaries):
-        doc_num = doc_info['num']
-        start_line = doc_info['line']
-
-        # Determine end line for this document
-        if doc_idx + 1 < len(doc_boundaries):
-            end_line = doc_boundaries[doc_idx + 1]['line']
-        else:
-            end_line = len(lines)
-
-        doc_lines = lines[start_line:end_line]
-        doc_text = '\n'.join(doc_lines)
-
-        # Find articles within this document
-        articles = segment_articles_in_doc_1295(doc_text, doc_num, start_line, debug)
-        all_articles.extend(articles)
-
-    return all_articles
+from typing import Dict, List, Tuple
 
 
-def segment_articles_in_doc_1295(text: str, doc_id: str, offset: int, debug: bool = False) -> List[Tuple[str, str, str]]:
-    """
-    Segment articles within a single document from Pragmática 1295.
+_DOC_HEADER_RE = re.compile(
+    r'^\s*82\.\s*PRAGMÁTICA DE JAIME II APROBANDO',
+    re.IGNORECASE,
+)
+_NEXT_DOC_RE = re.compile(
+    r'^\s*83\.\s*PRAGMÁTICA DE JAIME II',
+    re.IGNORECASE,
+)
 
-    Args:
-        text: Text of the document
-        doc_id: Document ID (e.g., "82", "83")
-        offset: Line offset in the original file
-        debug: Debug flag
+_ARTICLE_RE = re.compile(r'(?m)^[\s\u3000]*\[([IVXLCDM]+)\]\s*')
 
-    Returns:
-        List of (doc_id, article_id, article_text) tuples
-    """
-    lines = text.split('\n')
+_FOOTNOTE_RE = re.compile(r'^\s*\d+\s+[A-ZÁÉÍÓÚ]')
+_PAGE_RE = re.compile(r'^\s*\d{1,4}\s*$')
+_MULTI_SPACE_RE = re.compile(r'\s+')
+_HYPHEN_BREAK_RE = re.compile(r'(\w)-\s+(\w)')
 
-    # Pattern for article markers: [I], [II], [III], etc.
-    # Also handles variations like [I]Quod or [II]Item
-    article_pattern = re.compile(r'^[\s\u3000]*\[([IVX]+)\](.*)$')
+_SKIP_CONTAINS = [
+    "Jaime II manda al veguer",
+    "Original, en el Archivo",
+    "***",
+    "Transcrito por",
+    "Reseñado por",
+    "Copia en el Archivo Histórico",
+    "Copia en el Llibre Verd",
+    "Leyes Históricas de Cataluña",
+]
 
-    boundaries = []
-
-    for i, line in enumerate(lines):
-        match = article_pattern.match(line)
-        if match:
-            article_id = match.group(1)
-            title = match.group(2).strip()
-
-            boundaries.append({
-                'id': article_id,
-                'line': i,
-                'title': title[:60] if title else '(no title)'
-            })
-
-            if debug and len(boundaries) <= 25:
-                print(f"  Doc {doc_id}, Article {article_id:>4s} at line {offset+i:4d}: {title[:60]}")
-
-    if debug:
-        print(f"  Document {doc_id}: {len(boundaries)} articles found")
-
-    # Extract text for each article
-    articles = []
-
-    for idx, boundary in enumerate(boundaries):
-        article_id = boundary['id']
-        start_line = boundary['line']
-
-        # Find end: next article or end of document
-        if idx + 1 < len(boundaries):
-            end_line = boundaries[idx + 1]['line']
-        else:
-            end_line = len(lines)
-
-        article_lines = lines[start_line:end_line]
-        article_text = extract_article_text_1295(article_lines)
-
-        if article_text.strip():
-            articles.append((doc_id, article_id, article_text))
-
-    return articles
+_END_MARKERS = [
+    "Mandantes vicario et baiulo Barchinone",
+    "Datum Barchinone, duodecimo kalendas marcii",
+]
 
 
-def extract_article_text_1295(lines: List[str]) -> str:
-    """
-    Extract clean article text from lines for Pragmática 1295.
-    Removes empty lines and excessive whitespace.
-    """
-    result = []
-
-    for line in lines:
-        # Remove leading ideographic spaces and regular spaces
-        stripped = line.strip().replace('\u3000', ' ').strip()
-        if not stripped:
-            continue
-        result.append(stripped)
-
-    text = ' '.join(result)
-    # Clean up multiple spaces
-    text = re.sub(r'\s+', ' ', text)
-    return text.strip()
+_ROMAN_VALUES: Dict[str, int] = {
+    "I": 1, "V": 5, "X": 10, "L": 50,
+    "C": 100, "D": 500, "M": 1000,
+}
 
 
 def roman_to_int(roman: str) -> int:
-    """Convert Roman numeral to integer for sorting."""
-    roman_values = {
-        'I': 1, 'V': 5, 'X': 10, 'L': 50,
-        'C': 100, 'D': 500, 'M': 1000
-    }
-
     total = 0
-    prev_value = 0
-
-    for char in reversed(roman.upper()):
-        value = roman_values.get(char, 0)
-        if value < prev_value:
+    prev = 0
+    for ch in reversed(roman.upper()):
+        value = _ROMAN_VALUES.get(ch, 0)
+        if value < prev:
             total -= value
         else:
             total += value
-        prev_value = value
-
+            prev = value
     return total
 
 
-def segment_zhaime1295_unified(
-    source_file,
-    source_name
-):
-    """
-    Унифицированная функция сегментации для Pragmática de Jaime II 1295.
-    Соответствует контракту из INTERFACE.md.
+def clean_text(text: str) -> str:
+    text = text.replace("\xa0", " ").replace("\u3000", " ")
+    text = _HYPHEN_BREAK_RE.sub(r"\1\2", text)
+    text = _MULTI_SPACE_RE.sub(" ", text)
+    return text.strip()
 
-    Параметры
-    ---------
-    source_file : str или Path
-        Путь к файлу с текстом (формат .txt или .docx).
-    source_name : str
-        Имя источника (например, "PragmatikaZhaumeII1295").
-    min_words : int, optional
-        Минимальное количество слов в сегменте (по умолчанию 10).
-    max_words : int, optional
-        Максимальное количество слов в сегменте (по умолчанию 150).
 
-    Возвращает
-    ----------
-    List[Tuple[str, str]]
-        Список сегментов в формате (segment_id, segment_text).
-    """
-    from .seg_common import read_source_file, apply_word_limits, validate_segments
+def _slice_target_document(text: str) -> str:
+    lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+
+    start_idx = None
+    for i, line in enumerate(lines):
+        if _DOC_HEADER_RE.search(line):
+            start_idx = i
+            break
+
+    if start_idx is None:
+        return "\n".join(lines)
+
+    end_idx = len(lines)
+    for i in range(start_idx + 1, len(lines)):
+        if _NEXT_DOC_RE.search(lines[i]):
+            end_idx = i
+            break
+
+    return "\n".join(lines[start_idx:end_idx])
+
+
+def _trim_tail(text: str) -> str:
+    for marker in _END_MARKERS:
+        pos = text.find(marker)
+        if pos != -1:
+            return text[:pos]
+    return text
+
+
+def _drop_editorial_noise(lines: List[str]) -> List[str]:
+    out: List[str] = []
+    for raw in lines:
+        s = raw.strip().replace("\xa0", " ").replace("\u3000", " ")
+        if not s:
+            continue
+        if _PAGE_RE.match(s):
+            continue
+        if _FOOTNOTE_RE.match(s):
+            continue
+        if any(mark in s for mark in _SKIP_CONTAINS):
+            continue
+        if _DOC_HEADER_RE.search(s):
+            continue
+        out.append(s)
+    return out
+
+
+def _extract_preamble(text: str) -> str:
+    matches = list(_ARTICLE_RE.finditer(text))
+    if not matches:
+        return ""
+
+    preamble_raw = text[:matches[0].start()]
+    lines = _drop_editorial_noise(preamble_raw.splitlines())
+    joined = "\n".join(lines)
+
+    start_markers = [
+        "In Dei nomine, noverint universi quod Nos",
+        "In Dei nomine",
+    ]
+    start_pos = -1
+    for marker in start_markers:
+        pos = joined.find(marker)
+        if pos != -1:
+            start_pos = pos
+            break
+    if start_pos != -1:
+        joined = joined[start_pos:]
+
+    return clean_text(joined)
+
+
+def _extract_articles(text: str, source_name: str) -> List[Tuple[str, str]]:
+    matches = list(_ARTICLE_RE.finditer(text))
+    if not matches:
+        return []
+
+    segments: List[Tuple[str, str]] = []
+
+    for idx, match in enumerate(matches):
+        roman = match.group(1)
+        art_no = roman_to_int(roman)
+
+        start = match.start()
+        end = matches[idx + 1].start() if idx + 1 < len(matches) else len(text)
+        block = text[start:end]
+
+        block = re.sub(r'^\s*\[[IVXLCDM]+\]\s*', '', block, flags=re.IGNORECASE)
+        lines = _drop_editorial_noise(block.splitlines())
+        article_text = clean_text(" ".join(lines))
+
+        if article_text:
+            segments.append((f"{source_name}_Art{art_no}", article_text))
+
+    return segments
+
+
+def segment_zhaime1295(text: str, source_name: str, min_words: int = 10) -> List[Tuple[str, str]]:
+    text = _slice_target_document(text)
+    text = _trim_tail(text)
+
+    segments: List[Tuple[str, str]] = []
+
+    preamble = _extract_preamble(text)
+    if preamble and len(preamble.split()) >= min_words:
+        segments.append((f"{source_name}_Art0", preamble))
+
+    for seg_id, seg_text in _extract_articles(text, source_name):
+        if len(seg_text.split()) >= min_words:
+            segments.append((seg_id, seg_text))
+
+    return segments
+
+
+def segment_zhaime1295_unified(source_file, source_name):
+    from .seg_common import read_source_file, validate_segments
+
     text = read_source_file(source_file)
-    raw_triples = segment_zhaime1295_text(text, debug=False)
-    # Преобразуем тройки (doc_id, article_id, text) в пары (id, text)
-    segments = []
-    for doc_id, art_id, art_text in raw_triples:
-        seg_id = f"{source_name}_Doc{doc_id}_Art{art_id}"
-        segments.append((seg_id, art_text))
-    # Применяем ограничения по словам
-    # Валидация
-    return validate_segments(segments, source_name)
-def analyze_and_save_1295(text: str, output_file: str):
-    """Analyze segmentation and save results for Pragmática 1295."""
+    raw_segments = segment_zhaime1295(text, source_name=source_name, min_words=10)
+    return validate_segments(raw_segments, source_name)
 
+
+def analyze_and_save(text: str, output_file: str, source_name: str = "PragmatikaZhaumeII1295") -> List[Tuple[str, str]]:
     print("=" * 80)
-    print("PRAGMÁTICA DE JAIME II 1295 - ARTICLE SEGMENTATION")
+    print("PRAGMÁTICA DE JAIME II 1295 - SEGMENTATION")
     print("=" * 80)
 
-    articles = segment_zhaime1295_text(text, debug=True)
+    segments = segment_zhaime1295(text, source_name=source_name, min_words=10)
 
-    # Group by document
-    docs = {}
-    for doc_id, art_id, art_text in articles:
-        if doc_id not in docs:
-            docs[doc_id] = []
-        docs[doc_id].append((art_id, art_text))
+    print(f"Found segments: {len(segments)}")
+    if segments:
+        print(f"First id: {segments[0][0]}")
+        print(f"Last id:  {segments[-1][0]}")
 
-    print("\n" + "=" * 80)
-    print("SUMMARY")
-    print("=" * 80)
-    print(f"Total documents: {len(docs)}")
-    for doc_id in sorted(docs.keys(), key=lambda x: int(x)):
-        print(f"  Document {doc_id}: {len(docs[doc_id])} articles")
-
-    print(f"\nTotal articles: {len(articles)}")
-
-    # Check for duplicates within each document
-    from collections import Counter
-    for doc_id, articles_in_doc in docs.items():
-        article_ids = [aid for aid, _ in articles_in_doc]
-        duplicates = [(n, c) for n, c in Counter(article_ids).items() if c > 1]
-        if duplicates:
-            print(f"\nWARNING: Duplicates in document {doc_id}:")
-            for art_id, count in duplicates:
-                print(f"  Article {art_id} appears {count} times")
-        else:
-            print(f"\nDocument {doc_id}: No duplicates ✓")
-
-    print("=" * 80)
-
-    # Save results
-    with open(output_file, 'w', encoding='utf-8') as f:
-        f.write(f"PRAGMÁTICA DE JAIME II 1295 - SEGMENTED ARTICLES\n")
-        f.write(f"Total documents: {len(docs)}\n")
-        f.write(f"Total articles: {len(articles)}\n")
+    with open(output_file, "w", encoding="utf-8") as f:
+        f.write(f"Total segments: {len(segments)}\n")
         f.write("=" * 80 + "\n\n")
-
-        for doc_id in sorted(docs.keys(), key=lambda x: int(x)):
-            f.write(f"\n{'=' * 80}\n")
-            f.write(f"DOCUMENT {doc_id}\n")
-            f.write(f"Articles: {len(docs[doc_id])}\n")
-            f.write(f"{'=' * 80}\n\n")
-
-            # Sort articles by Roman numeral value
-            sorted_articles = sorted(docs[doc_id], key=lambda x: roman_to_int(x[0]))
-
-            for article_id, text in sorted_articles:
-                f.write(f"{'=' * 80}\n")
-                f.write(f"ARTICLE {doc_id}.{article_id}\n")
-                f.write(f"{'=' * 80}\n")
-                f.write(text)
-                f.write("\n\n")
+        for seg_id, seg_text in segments:
+            f.write("=" * 80 + "\n")
+            f.write(f"{seg_id}\n")
+            f.write("=" * 80 + "\n")
+            f.write(seg_text)
+            f.write("\n\n")
 
     print(f"\nResults saved to {output_file}")
-    print("=" * 80)
-    return articles
+    return segments
 
 
 def main():
-    """Main entry point"""
-    file_zhaime1295 = Path("data/PragmatikaZhaumeII1295_v2.txt")
+    candidates = [
+        Path("data/PragmatikaZhaumeII1295_v2.txt"),
+        Path("PragmatikaZhaumeII1295_v2.txt"),
+        Path("/mnt/data/PragmatikaZhaumeII1295_v2.txt"),
+    ]
 
-    if file_zhaime1295.exists():
-        print(f"Processing Pragmática de Jaime II 1295 from {file_zhaime1295}...\n")
-        text = file_zhaime1295.read_text(encoding='utf-8')
-        docs = analyze_and_save_1295(text, output_file="pragmatica_zhaime1295_segmented.txt")
-    else:
-        print(f"Error: {file_zhaime1295} not found")
+    src = next((p for p in candidates if p.exists()), None)
+    if src is None:
+        print("Source file not found. Tried:")
+        for p in candidates:
+            print(f"  - {p}")
+        raise SystemExit(1)
+
+    print(f"Processing {src}...")
+    text = src.read_text(encoding="utf-8", errors="replace")
+    segs = analyze_and_save(
+        text,
+        output_file="pragmatica_zhaime1295_segmented.txt",
+        source_name="PragmatikaZhaumeII1295",
+    )
+
+    if segs:
+        print("\nFirst 5 segments:")
+        for sid, stxt in segs[:5]:
+            preview = stxt[:120] + "..." if len(stxt) > 120 else stxt
+            print(f"  {sid}: {preview}")
+
+        print("\nLast 5 segments:")
+        for sid, stxt in segs[-5:]:
+            preview = stxt[:120] + "..." if len(stxt) > 120 else stxt
+            print(f"  {sid}: {preview}")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

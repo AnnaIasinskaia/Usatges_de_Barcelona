@@ -1,289 +1,281 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Segmentation script for:
-38. PRIVILEGI DIT GENERALMENT DE LA QUERIMONIA (COSTUMBRES DEL VALLE DE ARÁN). 1313
+Segmenter for Privilegi de la Querimònia (Val d'Aran, 1313).
 
-Основан на seg_zhaime1301.py:
-- один документ (38.)
-- испанский редакционный заголовок + аннотация
-- латинский текст с артикулами [I]...[XXIII]
-- хвостовая формула ("In cuius rei testimonium...", "Data Ilerde...") — отбрасывается
+Ориентация на ObychaiValdArana1313_v2.txt.
+
+Принципы:
+- unified-выход только в формате (id, text)
+- единый стиль id: ObychaiValdArana1313_ArtN
+- Art0 = латинская преамбула
+- Art1..Art23 = статьи [I]..[XXIII]
+- режем только документ 38 и не заходим в следующий текст
 """
+
+from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import List, Tuple
-from collections import Counter
+from typing import Dict, List, Tuple
 
-# ── Patterns ──────────────────────────────────────────────────────────────────
 
-# [I] ...  (с возможными пробелами и \u3000 перед скобкой)
-ARTICLE_PATTERN = re.compile(r'^[\s\u3000]*\[([IVX]+)\](.*)', re.DOTALL)
+_DOC_HEADER_RE = re.compile(
+    r'^\s*38\.\s*PRIVILEGI DIT GENERALMENT DE LA QUERIMONIA',
+    re.IGNORECASE,
+)
+_NEXT_DOC_RE = re.compile(
+    r'^\s*(?:c\)\s*Compilaciones de derecho feudal|39\.\s*LAS COSTUMAS DE CATHALUNYA)',
+    re.IGNORECASE,
+)
 
-# "1 Publicado..." и подобные редакторские сноски
-FOOTNOTE_PATTERN = re.compile(r'^\s*\d+\s+[A-ZÁÉÍÓÚ]')
+_ARTICLE_RE = re.compile(r'(?m)^[\s\u3000]*\[([IVXLCDM]+)\]\s*')
 
-# Заголовок документа: "38.PRIVILEGI DIT GENERALMENT DE LA QUERIMONIA ..."
-DOC_HEADER_PATTERN = re.compile(r'^(\d+)\.\s*PRIVILEGI DIT GENERALMENT DE LA QUERIMONIA', re.IGNORECASE)
+_FOOTNOTE_RE = re.compile(r'^\s*\d+\s+[A-ZÁÉÍÓÚ]')
+_PAGE_RE = re.compile(r'^\s*\d{1,4}\s*$')
+_MULTI_SPACE_RE = re.compile(r'\s+')
+_HYPHEN_BREAK_RE = re.compile(r'(\w)-\s+(\w)')
 
-# Маркеры конца хартии (чтобы отрезать нотариальный хвост)
-CLOSING_MARKERS = [
+_SKIP_CONTAINS = [
+    "Jaime II de Aragón concede",
+    "Original, perdido",
+    "Copia de la misma fecha que el original",
+    "Copia en documento de confirmación",
+    "***",
+    "Publicado por",
+    "reedición a cargo de",
+    "Una traducción",
+    "Agradecemos la ayuda",
+]
+
+_END_MARKERS = [
     "In cuius rei testimonium",
     "Data Ilerde",
 ]
 
-# Всё, что идёт после привилегии, нас не интересует
-AFTER_DOC_MARKERS = [
-    "c) Compilaciones de derecho feudal",
-    "39.LAS COSTUMAS DE CATHALUNYA",
-]
+_ROMAN_VALUES: Dict[str, int] = {
+    "I": 1, "V": 5, "X": 10, "L": 50,
+    "C": 100, "D": 500, "M": 1000,
+}
 
-# Редакционные маркеры, которые можно пропускать
-SKIP_MARKERS = [
-    "Original, perdido",
-    "Original, en el Archivo",
-    "***",
-    "Reseñado por",
-    "Publicado por",
-    "Copia en el Llibre",
-    "Copia de la misma fecha que el original",
-]
-
-
-# ── Helpers ───────────────────────────────────────────────────────────────────
 
 def roman_to_int(roman: str) -> int:
-    vals = {'I': 1, 'V': 5, 'X': 10, 'L': 50, 'C': 100, 'D': 500, 'M': 1000}
-    total, prev = 0, 0
+    total = 0
+    prev = 0
     for ch in reversed(roman.upper()):
-        v = vals.get(ch, 0)
-        total = total - v if v < prev else total + v
-        prev = v
+        value = _ROMAN_VALUES.get(ch, 0)
+        if value < prev:
+            total -= value
+        else:
+            total += value
+            prev = value
     return total
 
 
 def clean_text(text: str) -> str:
-    # убрать переносы с дефисом и нормализовать пробелы
-    text = re.sub(r'-\s+', '', text)
-    text = re.sub(r'\s+', ' ', text)
+    text = text.replace("\xa0", " ").replace("\u3000", " ")
+    text = _HYPHEN_BREAK_RE.sub(r"\1\2", text)
+    text = _MULTI_SPACE_RE.sub(" ", text)
     return text.strip()
 
 
-# ── Core segmenter ────────────────────────────────────────────────────────────
+def _slice_target_document(text: str) -> str:
+    lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
 
-def segment_vald_aran_text(
-    text: str,
-    debug: bool = False,
-) -> List[Tuple[str, str, str]]:
-    """
-    Сегментирует Privilegi de la Querimònia (Val d'Aran, 1313) на статьи.
-
-    Возвращает:
-      List[(doc_id, article_id, article_text)],
-      где doc_id == "38",
-      article_id "0" — преамбула (до [I]).
-    """
-    lines = text.split('\n')
-
-    DOC_ID = "38"  # по умолчанию; при наличии заголовка обновим из него
-
-    articles: List[Tuple[str, str, str]] = []
-    current_roman: str | None = None
-    current_lines: List[str] = []
-    in_articles: bool = False
-    preamble_lines: List[str] = []
-    in_target_doc: bool = False  # начали ли саму Querimònia
-
-    def flush():
-        nonlocal current_roman, current_lines
-        if current_roman is not None and current_lines:
-            t = clean_text(" ".join(current_lines))
-            if t:
-                articles.append((DOC_ID, current_roman, t))
-        current_roman = None
-        current_lines = []
-
-    for i, raw_line in enumerate(lines):
-        # сохраняем оригинальную строку для match'ей по началу
-        line_raw = raw_line.rstrip('\r\n')
-        # нормализованный вариант для остальной логики
-        line = line_raw.strip().replace('\u3000', ' ')
-
-        if not line:
-            continue
-
-        # Если наткнулись на блок, который идёт уже после нашей привилегии — выходим.
-        if any(line_raw.startswith(m) for m in AFTER_DOC_MARKERS):
-            if debug:
-                print(f" After-doc marker at line {i}: {line_raw[:60]}")
-            flush()
+    start_idx = None
+    for i, line in enumerate(lines):
+        if _DOC_HEADER_RE.search(line):
+            start_idx = i
             break
 
-        # Если ещё не вошли в целевой документ, ждём его заголовка
-        if not in_target_doc:
-            m = DOC_HEADER_PATTERN.match(line_raw)
-            if m:
-                DOC_ID = m.group(1)
-                in_target_doc = True
-                if debug:
-                    print(f" Doc header for {DOC_ID} at line {i}: {line_raw[:60]}")
-                # заголовок не включаем в преамбулу
-                continue
-            # до целевого заголовка ничего не собираем
-            continue
+    if start_idx is None:
+        return "\n".join(lines)
 
-        # После начала целевого документа:
-
-        # Конечная формула — прекращаем извлечение статей
-        if any(line_raw.startswith(m) for m in CLOSING_MARKERS):
-            flush()
-            if debug:
-                print(f" Closing formula at line {i}: {line_raw[:60]}")
+    end_idx = len(lines)
+    for i in range(start_idx + 1, len(lines)):
+        if _NEXT_DOC_RE.search(lines[i]):
+            end_idx = i
             break
 
-        # Пропускаем редакционные маркеры
-        if any(m in line_raw for m in SKIP_MARKERS):
+    return "\n".join(lines[start_idx:end_idx])
+
+
+def _trim_tail(text: str) -> str:
+    for marker in _END_MARKERS:
+        pos = text.find(marker)
+        if pos != -1:
+            return text[:pos]
+    return text
+
+
+def _drop_editorial_noise(lines: List[str]) -> List[str]:
+    out: List[str] = []
+    for raw in lines:
+        s = raw.strip().replace("\xa0", " ").replace("\u3000", " ")
+        if not s:
             continue
-
-        # Сноски "1 Publicado..." и т.п.
-        if FOOTNOTE_PATTERN.match(line):
-            if debug:
-                print(f" Footnote at {i}: {line_raw[:60]}")
+        if _PAGE_RE.match(s):
             continue
-
-        # Маркер статьи [ROMAN]
-        art_match = ARTICLE_PATTERN.match(line_raw.replace('\u3000', ' '))
-        if art_match:
-            flush()
-            in_articles = True
-            current_roman = art_match.group(1)
-            rest = art_match.group(2).strip()
-            current_lines = [rest] if rest else []
-            if debug:
-                print(f" Article [{current_roman}] at {i}: {rest[:50]}")
+        if _FOOTNOTE_RE.match(s):
             continue
-
-        # Накопление строк
-        if in_articles:
-            current_lines.append(line_raw.strip())
-        else:
-            # Всё между заголовком и [I] идёт в преамбулу
-            preamble_lines.append(line_raw.strip())
-
-    # последний артикул
-    flush()
-
-    # добавляем преамбулу как статью 0
-    if preamble_lines:
-        preamble_text = clean_text(" ".join(preamble_lines))
-        if preamble_text:
-            articles.insert(0, (DOC_ID, "0", preamble_text))
-
-    return articles
+        if any(mark in s for mark in _SKIP_CONTAINS):
+            continue
+        if _DOC_HEADER_RE.search(s):
+            continue
+        out.append(s)
+    return out
 
 
-# ── Analysis + save ───────────────────────────────────────────────────────────
+def _extract_preamble(text: str) -> str:
+    matches = list(_ARTICLE_RE.finditer(text))
+    if not matches:
+        return ""
 
-def analyze_and_save_vald_aran(text: str, output_file: str) -> List[Tuple[str, str, str]]:
+    preamble_raw = text[:matches[0].start()]
+    lines = _drop_editorial_noise(preamble_raw.splitlines())
+    joined = "\n".join(lines)
+
+    start_markers = [
+        "In Christi nomine. Pateat universis",
+        "Pateat universis, quod coram Nobis",
+    ]
+    start_pos = -1
+    for marker in start_markers:
+        pos = joined.find(marker)
+        if pos != -1:
+            start_pos = pos
+            break
+    if start_pos != -1:
+        joined = joined[start_pos:]
+
+    return clean_text(joined)
+
+
+def _extract_articles(text: str, source_name: str) -> List[Tuple[str, str]]:
+    matches = list(_ARTICLE_RE.finditer(text))
+    if not matches:
+        return []
+
+    segments: List[Tuple[str, str]] = []
+
+    for idx, match in enumerate(matches):
+        roman = match.group(1)
+        art_no = roman_to_int(roman)
+
+        start = match.start()
+        end = matches[idx + 1].start() if idx + 1 < len(matches) else len(text)
+        block = text[start:end]
+
+        block = re.sub(r'^\s*\[[IVXLCDM]+\]\s*', '', block, flags=re.IGNORECASE)
+        lines = _drop_editorial_noise(block.splitlines())
+        article_text = clean_text(" ".join(lines))
+
+        if article_text:
+            segments.append((f"{source_name}_Art{art_no}", article_text))
+
+    return segments
+
+
+def segment_vald_aran(text: str, source_name: str, min_words: int = 10) -> List[Tuple[str, str]]:
     """
-    Анализ сегментации, печать статистики и сохранение в файл.
+    Unified-style segmentation for Querimònia.
+
+    IDs:
+      ObychaiValdArana1313_Art0
+      ObychaiValdArana1313_Art1
+      ...
+      ObychaiValdArana1313_Art23
     """
-    print("=" * 80)
-    print("PRIVILEGI DE LA QUERIMÒNIA (VAL D'ARAN, 1313) – ARTICLE SEGMENTATION")
-    print("=" * 80)
+    text = _slice_target_document(text)
+    text = _trim_tail(text)
 
-    articles = segment_vald_aran_text(text, debug=True)
+    segments: List[Tuple[str, str]] = []
 
-    docs: dict = {}
-    for doc_id, art_id, art_text in articles:
-        docs.setdefault(doc_id, []).append((art_id, art_text))
+    preamble = _extract_preamble(text)
+    if preamble and len(preamble.split()) >= min_words:
+        segments.append((f"{source_name}_Art0", preamble))
 
-    print("\n" + "=" * 80)
-    print("SUMMARY")
-    print("=" * 80)
-    print(f"Total documents: {len(docs)}")
-    for doc_id in sorted(docs):
-        print(f" Document {doc_id}: {len(docs[doc_id])} articles")
-    print(f"\nTotal articles: {len(articles)}")
+    for seg_id, seg_text in _extract_articles(text, source_name):
+        if len(seg_text.split()) >= min_words:
+            segments.append((seg_id, seg_text))
 
-    # Проверка дубликатов
-    for doc_id, art_list in docs.items():
-        ids = [aid for aid, _ in art_list]
-        dupes = [(n, c) for n, c in Counter(ids).items() if c > 1]
-        if dupes:
-            print(f"\nWARNING: Duplicates in document {doc_id}:")
-            for art_id, count in dupes:
-                print(f" Article {art_id} × {count}")
-        else:
-            print(f"\nDocument {doc_id}: No duplicates ✓")
-
-    print("=" * 80)
-
-    # Сохранение результатов
-    with open(output_file, 'w', encoding='utf-8') as f:
-        f.write("PRIVILEGI DE LA QUERIMÒNIA (VAL D'ARAN, 1313) – SEGMENTED ARTICLES\n")
-        f.write(f"Total documents: {len(docs)}\n")
-        f.write(f"Total articles: {len(articles)}\n")
-        f.write("=" * 80 + "\n\n")
-
-        for doc_id in sorted(docs):
-            sorted_arts = sorted(
-                docs[doc_id],
-                key=lambda x: roman_to_int(x[0]) if x[0] != "0" else 0
-            )
-
-            f.write(f"\n{'=' * 80}\n")
-            f.write(f"DOCUMENT {doc_id}\n")
-            f.write(f"Articles: {len(sorted_arts)}\n")
-            f.write(f"{'=' * 80}\n\n")
-
-            for art_id, art_text in sorted_arts:
-                f.write(f"{'=' * 80}\n")
-                f.write(f"ARTICLE {doc_id}.{art_id}\n")
-                f.write(f"{'=' * 80}\n")
-                f.write(art_text)
-                f.write("\n\n")
-
-    print(f"\nResults saved to {output_file}")
-    print("=" * 80)
-
-    return articles
+    return segments
 
 
-# ── main ──────────────────────────────────────────────────────────────────────
-
-def main():
-    file_path = Path("data/ObychaiValdArana1313_v2.txt")
-    if file_path.exists():
-        print(f"Processing Val d'Aran customs from {file_path}...")
-        text = file_path.read_text(encoding='utf-8')
-        analyze_and_save_vald_aran(text, output_file="vald_aran_querimonia_segmented.txt")
-    else:
-        print(f"Error: {file_path} not found")
-
-
-def segment_vald_aran_unified(
-    source_file, source_name
-):
+def segment_vald_aran_unified(source_file, source_name):
     """
-    Унифицированная сегментация Val d'Aran.
-    Читает файл, применяет ограничения по словам.
+    Unified Val d'Aran segmenter.
     """
-    from .seg_common import read_source_file, apply_word_limits, validate_segments
+    from .seg_common import read_source_file, validate_segments
 
     text = read_source_file(source_file)
-    # Вызов старого сегментера с debug=False
-    raw_triples = segment_vald_aran_text(text, debug=False)
-
-    # Преобразуем тройки в пары (segment_id, text)
-    raw_segments = []
-    for doc_id, art_id, art_text in raw_triples:
-        seg_id = f"{source_name}_{doc_id}_{art_id}"
-        raw_segments.append((seg_id, art_text))
-
-
-    # Валидация
+    raw_segments = segment_vald_aran(text, source_name=source_name, min_words=10)
     return validate_segments(raw_segments, source_name)
-if __name__ == '__main__':
+
+
+def analyze_and_save(
+    text: str,
+    output_file: str,
+    source_name: str = "ObychaiValdArana1313",
+) -> List[Tuple[str, str]]:
+    print("=" * 80)
+    print("PRIVILEGI DE LA QUERIMÒNIA (VAL D'ARAN, 1313) – SEGMENTATION")
+    print("=" * 80)
+
+    segments = segment_vald_aran(text, source_name=source_name, min_words=10)
+
+    print(f"Found segments: {len(segments)}")
+    if segments:
+        print(f"First id: {segments[0][0]}")
+        print(f"Last id:  {segments[-1][0]}")
+
+    with open(output_file, "w", encoding="utf-8") as f:
+        f.write(f"Total segments: {len(segments)}\n")
+        f.write("=" * 80 + "\n\n")
+        for seg_id, seg_text in segments:
+            f.write("=" * 80 + "\n")
+            f.write(f"{seg_id}\n")
+            f.write("=" * 80 + "\n")
+            f.write(seg_text)
+            f.write("\n\n")
+
+    print(f"\nResults saved to {output_file}")
+    return segments
+
+
+def main():
+    candidates = [
+        Path("data/ObychaiValdArana1313_v2.txt"),
+        Path("ObychaiValdArana1313_v2.txt"),
+        Path("/mnt/data/ObychaiValdArana1313_v2.txt"),
+    ]
+
+    src = next((p for p in candidates if p.exists()), None)
+    if src is None:
+        print("Source file not found. Tried:")
+        for p in candidates:
+            print(f"  - {p}")
+        raise SystemExit(1)
+
+    print(f"Processing {src}...")
+    text = src.read_text(encoding="utf-8", errors="replace")
+    segs = analyze_and_save(
+        text,
+        output_file="vald_aran_querimonia_segmented.txt",
+        source_name="ObychaiValdArana1313",
+    )
+
+    if segs:
+        print("\nFirst 5 segments:")
+        for sid, stxt in segs[:5]:
+            preview = stxt[:120] + "..." if len(stxt) > 120 else stxt
+            print(f"  {sid}: {preview}")
+
+        print("\nLast 5 segments:")
+        for sid, stxt in segs[-5:]:
+            preview = stxt[:120] + "..." if len(stxt) > 120 else stxt
+            print(f"  {sid}: {preview}")
+
+
+if __name__ == "__main__":
     main()

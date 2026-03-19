@@ -1,248 +1,234 @@
-"""Specialized segmenter for Costums de Tarrega (1290).
-
-Edition: Font Rius critical edition with Spanish commentary.
-
-Structure issues:
-  - Only 13 of 25 articles have explicit markers [N], [N), (N]
-  - Articles 5-12 are unmarked between [4] and [13)
-  - Spanish commentary interspersed without clear boundaries
-  - No consistent pattern for unmarked articles
-
-Strategy:
-  1. Extract explicitly marked articles [N], [N), (N], {N}
-  2. Between marked articles: extract Latin paragraphs as separate segments
-  3. Filter Spanish commentary using language ratio
-  4. Label unmarked segments as Tarregi_UnmarkedN
-
-This is a CONSERVATIVE approach: prefers precision over recall.
-Only extracts content we're confident is Latin legal text.
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
+Segmenter for Costums de Tarrega (1290 / privilege of 1242).
+
+Новая версия ориентирована на ObychaiTarregi1290E_v2.txt.
+
+Что меняется:
+- опора не на суррогатные "Unmarked" куски, а на реальную нумерацию [1]...[25]
+- единый стиль id: ObychaiTarregi1290E_ArtN
+- латинская преамбула выделяется как Art0
+- сегментер режет именно юридическое ядро, начиная с
+  "Noverint universi ..." и заканчивая датировкой "Datum Ilerde..."
+"""
+
+from __future__ import annotations
+
 import re
+from pathlib import Path
+from typing import List, Tuple, Optional
 
-def is_apparatus_line(text):
-    """Check if line is critical apparatus."""
-    if len(text) < 3:
-        return False
-    patterns = [r'\bMs\b', r'\bmss\b', r'\bCod\b', r'\bfol\.', 
-                r'\bp\.\s*\d+', r'v\.\s*l\.', r'\bop\.\s*cit\b',
-                r'\bcf\.']
-    count = sum(1 for p in patterns if re.search(p, text, re.I))
-    alpha_ratio = sum(c.isalpha() for c in text) / max(len(text), 1)
-    return count >= 2 or (count >= 1 and alpha_ratio < 0.5)
 
-def clean_text(text):
-    """Normalize whitespace."""
-    text = re.sub(r'\s+', ' ', text)
-    text = re.sub(r'[­\u00ad]', '', text)  # soft hyphens
+# Маркеры статей в этом OCR:
+# [1] [2] ... [12] [13) [14] (15] [17) [22} (25]
+_ARTICLE_MARKER_RE = re.compile(r'(?m)^[\s\u3000\.,;:·•\-–—]*[\[\(](\d{1,2})[\]\)\}]\s*')
+
+_START_MARKERS = [
+    "Noverint universi quod nos",
+    "[CONSUETUDINES VILLE TAREGE.",
+]
+
+_END_MARKERS = [
+    "Datum Ilerde",
+    "Sig t. num Iacobi",
+    "Signum Guillemoni scriba",
+]
+
+_SKIP_LINE_PATTERNS = [
+    re.compile(r'^\s*\d{1,4}\s*$'),                    # page number
+    re.compile(r'^\s*[a-z]\s+B\b'),                    # editorial note like "a B"
+    re.compile(r'^\s*[a-z]\s+C\b'),
+    re.compile(r'^\s*[a-z]\s+D\b'),
+    re.compile(r'^\s*\d+\.'),                          # scholarly footnotes/comments
+]
+
+_MULTI_SPACE_RE = re.compile(r'\s+')
+_HYPHEN_BREAK_RE = re.compile(r'(\w)[\-\u00ad]\s+(\w)')
+_LEADING_MARKER_RE = re.compile(r'^[\s\.,;:·•\-–—]*[\[\(]\d{1,2}[\]\)\}]\s*')
+_INLINE_FOOTNOTE_RE = re.compile(r'(?<=\w)\s*\d+\s*[•º°*]?(?=[\s\.,;:])')
+
+
+def clean_text(text: str) -> str:
+    text = text.replace("\xa0", " ").replace("\u3000", " ")
+    text = _HYPHEN_BREAK_RE.sub(r"\1\2", text)
+    text = _MULTI_SPACE_RE.sub(" ", text)
     return text.strip()
 
-def detect_latin_ratio(text):
-    """Estimate Latin vs Spanish content ratio (1.0 = pure Latin)."""
-    # Latin endings and words
-    latin_patterns = [
-        r'\b\w+tur\b', r'\b\w+um\b', r'\b\w+is\b', r'\b\w+it\b',
-        r'\b\w+nt\b', r'\b\w+tis\b', r'\bvel\b', r'\bet\b',
-        r'\bnon\b', r'\bsi\b', r'\bper\b', r'\bin\b',
-        r'\baliquo\b', r'\baliqua\b', r'\bqui\b', r'\bquod\b',
-        r'\bfuerit\b', r'\bdebere\b', r'\bteneantur\b',
-    ]
-    # Spanish words
-    spanish_patterns = [
-        r'\bel\b', r'\bla\b', r'\blos\b', r'\blas\b', r'\bde\b',
-        r'\bdel\b', r'\bcon\b', r'\bpor\b', r'\ben\b', r'\bque\b',
-        r'\bpara\b', r'\bción\b', r'\bmiento\b', r'\bpero\b',
-        r'\bmás\b', r'\bsobre\b', r'\besta\b', r'\beste\b',
-        r'\baños\b', r'\bdonde\b', r'\bsolo\b', r'\bcomo\b',
-    ]
 
-    latin_count = sum(len(re.findall(p, text, re.I)) for p in latin_patterns)
-    spanish_count = sum(len(re.findall(p, text, re.I)) for p in spanish_patterns)
+def _slice_legal_core(text: str) -> str:
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
 
-    total = latin_count + spanish_count
-    return latin_count / total if total > 0 else 0.5
+    start_pos: Optional[int] = None
+    for marker in _START_MARKERS:
+        pos = text.find(marker)
+        if pos != -1:
+            start_pos = pos
+            break
+    if start_pos is None:
+        start_pos = 0
 
-# Article markers: [N] or [N) or (N] or {N} or [N}
-# Must be at line start or after whitespace, max 2 digits
-_ARTICLE_MARKER = re.compile(
-    r'(?:^|\s)([\[\(]\d{1,2}[\]\)\}])',
-    re.MULTILINE
-)
+    text = text[start_pos:]
 
-def segment_tarregi(text, source_name="Tarregi", min_latin_ratio=0.70, min_words=15):
-    """Segment Costums de Tarrega with conservative Latin-only extraction.
+    end_pos: Optional[int] = None
+    for marker in _END_MARKERS:
+        pos = text.find(marker)
+        if pos != -1:
+            end_pos = pos
+            break
+    if end_pos is not None:
+        text = text[:end_pos]
 
-    Args:
-        text: Full document text
-        source_name: Source identifier
-        min_latin_ratio: Minimum Latin ratio to accept segment (default 0.70 = strict)
-        min_words: Minimum words per segment
+    return text
 
-    Returns:
-        List of (segment_id, segment_text) tuples
+
+def _keep_line(line: str) -> bool:
+    s = line.strip().replace("\xa0", " ").replace("\u3000", " ")
+    if not s:
+        return False
+    for pat in _SKIP_LINE_PATTERNS:
+        if pat.match(s):
+            return False
+    return True
+
+
+def _normalize_block(block: str) -> str:
+    lines = []
+    for raw in block.splitlines():
+        if not _keep_line(raw):
+            continue
+        s = raw.strip().replace("\xa0", " ").replace("\u3000", " ")
+        lines.append(s)
+
+    text = " ".join(lines)
+    text = _LEADING_MARKER_RE.sub("", text)
+    text = _INLINE_FOOTNOTE_RE.sub("", text)
+    text = clean_text(text)
+    text = re.sub(r'^[\]\)\}.,:;\-\s]+', '', text)
+    return clean_text(text)
+
+
+def _extract_preamble(core_text: str) -> str:
+    matches = list(_ARTICLE_MARKER_RE.finditer(core_text))
+    if not matches:
+        return ""
+    preamble = core_text[:matches[0].start()]
+    return _normalize_block(preamble)
+
+
+def segment_tarregi(
+    text: str,
+    source_name: str = "ObychaiTarregi1290E",
+    min_words: int = 8,
+) -> List[Tuple[str, str]]:
     """
-    lines = text.split('\n')
+    Unified-style segmentation of Tarrega.
 
-    # Find all article markers and their line numbers
-    markers = []
-    for i, line in enumerate(lines):
-        match = _ARTICLE_MARKER.search(line)
-        if match:
-            # Extract article number
-            marker_str = match.group(1).strip()
-            num_match = re.search(r'(\d+)', marker_str)
-            if num_match:
-                art_num = int(num_match.group(1))
-                markers.append((i, art_num, marker_str))
-
-    if not markers:
+    Output IDs:
+      ObychaiTarregi1290E_Art0
+      ObychaiTarregi1290E_Art1
+      ...
+      ObychaiTarregi1290E_Art25
+    """
+    core_text = _slice_legal_core(text)
+    matches = list(_ARTICLE_MARKER_RE.finditer(core_text))
+    if not matches:
         return []
 
-    segments = []
+    segments: List[Tuple[str, str]] = []
 
-    # Process each marked article
-    for idx, (line_num, art_num, marker_str) in enumerate(markers):
-        # Determine content region for this article
-        start_line = line_num
-        end_line = markers[idx + 1][0] if idx + 1 < len(markers) else len(lines)
+    preamble = _extract_preamble(core_text)
+    if preamble and len(preamble.split()) >= min_words:
+        segments.append((f"{source_name}_Art0", preamble))
 
-        # === MARKED ARTICLE: Extract article text ===
-        article_lines = []
+    for idx, match in enumerate(matches):
+        art_no = int(match.group(1))
+        start = match.start()
+        end = matches[idx + 1].start() if idx + 1 < len(matches) else len(core_text)
+        block = core_text[start:end]
+        article_text = _normalize_block(block)
 
-        # Line with marker
-        marker_line = lines[start_line].strip()
-        # Remove marker itself from line
-        article_text = re.sub(r'[\[\(]\d{1,2}[\]\)\}]', '', marker_line).strip()
-        if article_text:
-            article_lines.append(article_text)
-
-        # Following lines until next marker (but only first paragraph/sentence)
-        for i in range(start_line + 1, min(start_line + 5, end_line)):
-            line = lines[i].strip()
-            if not line or len(line) < 5:
-                continue
-            if is_apparatus_line(line):
-                continue
-            # Stop at Spanish commentary
-            if detect_latin_ratio(line) < 0.5:
-                break
-            # Stop at numbered footnotes
-            if re.match(r'^\d{1,2}\.\s', line):
-                break
-            article_lines.append(line)
-
-        if article_lines:
-            article_text = clean_text(' '.join(article_lines))
-            # Language filter
-            if detect_latin_ratio(article_text) >= min_latin_ratio:
-                word_count = len(article_text.split())
-                if word_count >= min_words:
-                    seg_id = f"{source_name}_Art{art_num}"
-                    segments.append((seg_id, article_text))
-
-        # === UNMARKED CONTENT between this article and next ===
-        # Look for Latin paragraphs in the gap
-        gap_start = start_line + 6  # Skip first few lines (part of marked article)
-        gap_end = end_line - 1
-
-        if gap_end - gap_start > 3:  # Only if gap is significant
-            unmarked_segments = _extract_unmarked_latin(
-                lines, gap_start, gap_end, 
-                f"{source_name}_Unmarked{idx+1}",
-                min_latin_ratio, min_words
-            )
-            segments.extend(unmarked_segments)
-
-    return segments
-
-def _extract_unmarked_latin(lines, start, end, base_id, min_ratio, min_words):
-    """Extract unmarked Latin paragraphs from a region.
-
-    Strategy: Group consecutive Latin lines into paragraphs.
-    """
-    segments = []
-    current_para = []
-    current_words = 0
-    para_num = 1
-
-    for i in range(start, end):
-        line = lines[i].strip()
-
-        # Skip short, empty, apparatus
-        if not line or len(line) < 20:
-            # End current paragraph if any
-            if current_para:
-                para_text = clean_text(' '.join(current_para))
-                if current_words >= min_words and detect_latin_ratio(para_text) >= min_ratio:
-                    seg_id = f"{base_id}_{chr(96+para_num)}"  # _a, _b, _c
-                    segments.append((seg_id, para_text))
-                    para_num += 1
-                current_para = []
-                current_words = 0
-            continue
-
-        if is_apparatus_line(line):
-            continue
-
-        # Skip numbered footnotes
-        if re.match(r'^\d{1,2}\.\s', line):
-            continue
-
-        # Check if line is Latin
-        line_ratio = detect_latin_ratio(line)
-
-        if line_ratio >= 0.6:  # Accept line
-            current_para.append(line)
-            current_words += len(line.split())
-        else:  # Spanish commentary - end paragraph
-            if current_para:
-                para_text = clean_text(' '.join(current_para))
-                if current_words >= min_words and detect_latin_ratio(para_text) >= min_ratio:
-                    seg_id = f"{base_id}_{chr(96+para_num)}"
-                    segments.append((seg_id, para_text))
-                    para_num += 1
-                current_para = []
-                current_words = 0
-
-    # Final paragraph
-    if current_para:
-        para_text = clean_text(' '.join(current_para))
-        if current_words >= min_words and detect_latin_ratio(para_text) >= min_ratio:
-            seg_id = f"{base_id}_{chr(96+para_num)}"
-            segments.append((seg_id, para_text))
+        if article_text and len(article_text.split()) >= min_words:
+            seg_id = f"{source_name}_Art{art_no}"
+            segments.append((seg_id, article_text))
 
     return segments
 
 
-def segment_tarregi_unified(
-    source_file, source_name
-):
+def segment_tarregi_unified(source_file, source_name):
     """
-    Унифицированная сегментация Tarregi.
-    Читает файл, применяет ограничения по словам.
+    Unified Tarregi segmenter.
     """
-    from .seg_common import read_source_file, apply_word_limits, validate_segments
+    from .seg_common import read_source_file, validate_segments
 
     text = read_source_file(source_file)
-    # Вызов старого сегментера с параметрами по умолчанию (min_latin_ratio=0.70, min_words=15)
-    raw_segments = segment_tarregi(text, source_name, min_latin_ratio=0.70, min_words=15)
-    # Валидация
+    raw_segments = segment_tarregi(text, source_name=source_name, min_words=8)
     return validate_segments(raw_segments, source_name)
+
+
+def analyze_and_save(
+    text: str,
+    output_file: str,
+    source_name: str = "ObychaiTarregi1290E",
+) -> List[Tuple[str, str]]:
+    print("=" * 80)
+    print("COSTUMS DE TARREGA (1290 / PRIVILEGE OF 1242) - SEGMENTATION")
+    print("=" * 80)
+
+    segments = segment_tarregi(text, source_name=source_name, min_words=8)
+
+    print(f"Found segments: {len(segments)}")
+    if segments:
+        print(f"First id: {segments[0][0]}")
+        print(f"Last id:  {segments[-1][0]}")
+
+    with open(output_file, "w", encoding="utf-8") as f:
+        f.write(f"Total segments: {len(segments)}\n")
+        f.write("=" * 80 + "\n\n")
+        for seg_id, seg_text in segments:
+            f.write("=" * 80 + "\n")
+            f.write(f"{seg_id}\n")
+            f.write("=" * 80 + "\n")
+            f.write(seg_text)
+            f.write("\n\n")
+
+    print(f"\nResults saved to {output_file}")
+    return segments
+
+
+def main():
+    candidates = [
+        Path("data/ObychaiTarregi1290E_v2.txt"),
+        Path("ObychaiTarregi1290E_v2.txt"),
+        Path("/mnt/data/ObychaiTarregi1290E_v2.txt"),
+    ]
+
+    src = next((p for p in candidates if p.exists()), None)
+    if src is None:
+        print("Source file not found. Tried:")
+        for p in candidates:
+            print(f"  - {p}")
+        raise SystemExit(1)
+
+    print(f"Processing {src}...")
+    text = src.read_text(encoding="utf-8", errors="replace")
+    segs = analyze_and_save(
+        text,
+        output_file="tarregi_segmented.txt",
+        source_name="ObychaiTarregi1290E",
+    )
+
+    if segs:
+        print("\nFirst 5 segments:")
+        for sid, stxt in segs[:5]:
+            preview = stxt[:120] + "..." if len(stxt) > 120 else stxt
+            print(f"  {sid}: {preview}")
+
+        print("\nLast 5 segments:")
+        for sid, stxt in segs[-5:]:
+            preview = stxt[:120] + "..." if len(stxt) > 120 else stxt
+            print(f"  {sid}: {preview}")
+
+
 if __name__ == "__main__":
-    import docx
-    from pathlib import Path
-
-    p = Path("data/ObychaiTarregi1290E.docx")
-    if p.exists():
-        doc = docx.Document(str(p))
-        text = "\n".join(par.text for par in doc.paragraphs)
-
-        segs = segment_tarregi(text, "Tarregi", min_latin_ratio=0.70, min_words=15)
-
-        print(f"Tarregi: {len(segs)} segments\n")
-
-        for sid, stxt in segs:
-            words = len(stxt.split())
-            ratio = detect_latin_ratio(stxt)
-            print(f"{sid:25s} | {words:3d}w | LAT{ratio:.2f} | {stxt[:70]}...")
-    else:
-        print("data/ObychaiTarregi1290E.docx not found")
+    main()

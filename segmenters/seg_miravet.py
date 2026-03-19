@@ -1,209 +1,213 @@
 """
-Specialized segmenter for Constituciones de Miravet (1319).
+Improved segmenter for Constituciones de Miravet (1319).
 
-Structure:
-- Historical introduction (editorial matter, skip)
-- Preamble: "In Christi nomine et individue Trinitatis..."
-- Article 0: "Primo confirmant nobis dominus castellanus..."
-- Articles 1-N: Each starting with "Item" or "ltem" (lowercase L)
-- Closing formulas: Signatures, notarial confirmations (skip)
-
-Strategy:
-1. Skip editorial introduction and metadata
-2. Extract preamble (In Christi nomine paragraph)
-3. Extract Primo article as Article 0
-4. Extract all Item/ltem articles sequentially
-5. Skip references to Consuetudines Ilerdenses
-6. Skip closing formulas
+Changes vs older version:
+- works against the newer TXT OCR first
+- extracts the legal core only
+- uses unified ids: <source_name>_ArtN
+- preamble -> Art0
+- "Primo confirmant..." -> Art1
+- later articles -> actual internal article numbers when visible in the text
+- main() updated to look for *_v2.txt first
 """
 
+from __future__ import annotations
+
 import re
+from pathlib import Path
 from typing import List, Tuple
 
-# Skip markers for editorial matter and closing formulas
-SKIP_MARKERS = [
-    'CONSTITUClONES B AIULI',
-    'DON EDUARDO DE HINOJOSA',
-    'HISTORIA Y FUENTES',
-    'LA PRESENTE EDICIN',
-    'LOSMANUSCRITOS',
-    'LA REDACCIN CATALANA',
-    'Et nos frater Elionus',
-    'Sigffinum',
-    'Testes huius',
-    'Ego Raymundus',
-    'Nos Petrus Sancii',
-    'Folio',
-    'Polio',
-    'Villanueva, Viage',
-    'El manuscrito',
-    'TITLE DOC',
+PREAMBLE_START_RE = re.compile(r"In\s+Christi\s+nomine\s+et\s+individue\s+Trinitatis", re.IGNORECASE)
+PRIMO_RE = re.compile(r"Primo\s+confirmant\s+nobis", re.IGNORECASE)
+ARTICLE_MARKER_RE = re.compile(r"(?m)^\s*[•*'\"]?\s*(\d(?: ?\d){0,2})\s*\.\s*(?=\S)")
+CF_REFERENCE_RE = re.compile(r"^\s*\d(?: ?\d){0,2}\s*\.\s*Cf\.", re.IGNORECASE)
+FOOTNOTE_LINE_RE = re.compile(r"^\s*\d+\)\s")
+FOLIO_LINE_RE = re.compile(r"\b(?:Folio|Polio|Foho)\b", re.IGNORECASE)
+
+CLOSING_BODY_MARKERS = [
+    "perpetuo ei mandamus",
+    "Sigffinum ffratris Martini Petri de Oros",
+    "Et nos frater Elionus",
 ]
 
-# Patterns for source references (to skip)
-REFERENCE_PATTERN = re.compile(r'^\s*\d+\.\s*Cf\.\s+Consuetudines', re.IGNORECASE)
-CF_PATTERN = re.compile(r'^\s*Cf\.\s+Cons', re.IGNORECASE)
-
-# Main patterns
-PREAMBLE_PATTERN = re.compile(r'In Christi nomine et individue Trinitatis', re.IGNORECASE)
-PRIMO_PATTERN = re.compile(r'Primo\s+confirmant\s+nobis', re.IGNORECASE)
-ITEM_PATTERN = re.compile(r'^l?tem\s+', re.IGNORECASE)  # Matches "Item" or "ltem" (lowercase L)
+HEADER_PATTERNS = [
+    re.compile(r"^\s*CONSTITUC", re.IGNORECASE),
+    re.compile(r"^\s*CO\s*NS\s*TI", re.IGNORECASE),
+    re.compile(r"^\s*BA\s*I?U?L?I?E?\s+MIRAB", re.IGNORECASE),
+    re.compile(r"^\s*B\s*JI\s*I\s*UL", re.IGNORECASE),
+]
 
 
-def segment_miravet(text: str, source_name: str = "Miravet", min_words: int = 10) -> List[Tuple[str, str]]:
-    """
-    Extract articles from Constituciones de Miravet.
+def _normalize_line(line: str) -> str:
+    line = line.replace("\u00ad", "")
+    line = line.replace("\u3000", " ")
+    line = re.sub(r"\s+", " ", line)
+    return line.strip()
 
-    Args:
-        text: Raw text from document file
-        source_name: Source identifier (default "Miravet")
-        min_words: Minimum words per segment (default 10)
 
-    Returns:
-        List of (segment_id, segment_text) tuples
-    """
+def _is_noise_line(line: str) -> bool:
+    if not line:
+        return True
+    if FOLIO_LINE_RE.search(line):
+        return True
+    if FOOTNOTE_LINE_RE.match(line):
+        return True
+    if CF_REFERENCE_RE.match(line):
+        return True
+    if any(p.search(line) for p in HEADER_PATTERNS):
+        return True
+    if "Villanueva" in line and "Viage" in line:
+        return True
+    if len(line) >= 8 and len(re.sub(r"[^A-ZÁÉÍÓÚÜÑ ]", "", line)) >= max(6, int(len(line) * 0.6)):
+        return True
+    return False
 
-    lines = text.split('\n')
 
-    segments = []
-    current_article_num = None
-    current_article_lines = []
-    in_articles = False
-    found_preamble = False
+def clean_text(text: str) -> str:
+    text = text.replace("\u00ad", "")
+    text = text.replace("\u3000", " ")
+    text = re.sub(r"(\w)[-‐‑‒–—]\s+(\w)", r"\1\2", text)
+    text = re.sub(r"[•*'\"]?\s*(?:Folio|Polio|Foho)\s+[^.]*\.", " ", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bft\d{3,4}\b", " ", text)
+    text = re.sub(r"\bCf\.\s*Consuetudines[^.]*\.", " ", text, flags=re.IGNORECASE)
+    text = re.sub(r"Villanueva[^.]*\.", " ", text, flags=re.IGNORECASE)
+    text = re.sub(r"Viage[^.]*\.", " ", text, flags=re.IGNORECASE)
+    text = re.sub(r"\b\d+\)", " ", text)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
 
-    i = 0
-    while i < len(lines):
-        line = lines[i].strip()
 
-        # Skip empty or very short lines
-        if not line or len(line) < 10:
-            i += 1
+def _slice_legal_core(text: str) -> str:
+    m = PREAMBLE_START_RE.search(text)
+    if not m:
+        return ""
+    start = m.start()
+    end = len(text)
+    for marker in CLOSING_BODY_MARKERS:
+        idx = text.find(marker, start)
+        if idx != -1:
+            end = min(end, idx)
+    return text[start:end]
+
+
+def _strip_noise_blocks(text: str) -> str:
+    cleaned_lines: List[str] = []
+    for raw_line in text.splitlines():
+        line = _normalize_line(raw_line)
+        if _is_noise_line(line):
             continue
+        cleaned_lines.append(line)
 
-        # Skip editorial matter and metadata
-        if any(marker in line for marker in SKIP_MARKERS):
-            i += 1
+    text = "\n".join(cleaned_lines)
+    text = re.sub(r"(?mis)^\s*\d(?: ?\d){0,2}\s*\.\s*Cf\..*?(?=^\s*(?:\d(?: ?\d){0,2}\s*\.|\Z))", "", text)
+    text = re.sub(r"(?m)^\s*13-?t\.?\s*$", "", text)
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r"\n{2,}", "\n", text)
+    return text.strip()
+
+
+def _parse_articles(cleaned_core: str, source_name: str, min_words: int) -> List[Tuple[str, str]]:
+    primo_match = PRIMO_RE.search(cleaned_core)
+    if not primo_match:
+        return []
+
+    segments: List[Tuple[str, str]] = []
+
+    preamble_text = clean_text(cleaned_core[:primo_match.start()])
+    if len(preamble_text.split()) >= min_words:
+        segments.append((f"{source_name}_Art0", preamble_text))
+
+    body = cleaned_core[primo_match.start():]
+    markers = list(ARTICLE_MARKER_RE.finditer(body))
+
+    if not markers:
+        primo_text = clean_text(body)
+        if len(primo_text.split()) >= min_words:
+            segments.append((f"{source_name}_Art1", primo_text))
+        return segments
+
+    primo_text = clean_text(body[:markers[0].start()])
+    if len(primo_text.split()) >= min_words:
+        segments.append((f"{source_name}_Art1", primo_text))
+
+    seen_numbers = {0, 1}
+    for i, m in enumerate(markers):
+        num = int(m.group(1).replace(" ", ""))
+        if num <= 1 or num in seen_numbers:
             continue
-
-        # Skip source references
-        if REFERENCE_PATTERN.match(line) or CF_PATTERN.match(line):
-            i += 1
+        start = m.start()
+        end = markers[i + 1].start() if i + 1 < len(markers) else len(body)
+        article_text = clean_text(body[start:end])
+        if not article_text:
             continue
-
-        # Extract preamble
-        if PREAMBLE_PATTERN.search(line) and not found_preamble:
-            found_preamble = True
-            preamble_text = line
-            segments.append((f"{source_name}:Preamble", clean_text(preamble_text)))
-            i += 1
-            continue
-
-        # Start of articles: "Primo confirmant nobis..."
-        if PRIMO_PATTERN.search(line) and not in_articles:
-            in_articles = True
-            current_article_num = 0
-            current_article_lines = [line]
-            i += 1
-            continue
-
-        # Process articles
-        if in_articles:
-            # New article starts with "Item" or "ltem"
-            if ITEM_PATTERN.match(line):
-                # Save previous article
-                if current_article_num is not None and current_article_lines:
-                    article_text = ' '.join(current_article_lines)
-                    if len(article_text.split()) >= min_words:
-                        segments.append((f"{source_name}:Art{current_article_num}", clean_text(article_text)))
-
-                # Start new article
-                current_article_num += 1
-                current_article_lines = [line]
-                i += 1
-                continue
-            else:
-                # Continuation of current article
-                if current_article_lines:
-                    # Don't add source references
-                    if not (CF_PATTERN.match(line) or REFERENCE_PATTERN.match(line)):
-                        current_article_lines.append(line)
-                i += 1
-                continue
-
-        i += 1
-
-    # Don't forget last article
-    if current_article_num is not None and current_article_lines:
-        article_text = ' '.join(current_article_lines)
         if len(article_text.split()) >= min_words:
-            segments.append((f"{source_name}:Art{current_article_num}", clean_text(article_text)))
+            segments.append((f"{source_name}_Art{num}", article_text))
+            seen_numbers.add(num)
 
     return segments
 
 
-def clean_text(text: str) -> str:
-    """Clean text: remove hyphenation artifacts, normalize whitespace."""
-    # Remove hyphenation artifacts
-    text = re.sub(r'-(\s+)', ' ', text)
-    # Normalize whitespace
-    text = re.sub(r'\s+', ' ', text)
-    return text.strip()
+def segment_miravet(text: str, source_name: str = "ObychaiMiraveta1319Fix", min_words: int = 10) -> List[Tuple[str, str]]:
+    legal_core = _slice_legal_core(text)
+    if not legal_core:
+        return []
+    cleaned_core = _strip_noise_blocks(legal_core)
+    return _parse_articles(cleaned_core, source_name=source_name, min_words=min_words)
 
 
-def segment_miravet_unified(
-    source_file, source_name
-):
-    """
-    Унифицированная сегментация Miravet.
-    Читает файл, применяет ограничения по словам.
-    """
-    from .seg_common import read_source_file, apply_word_limits, validate_segments
-
+def segment_miravet_unified(source_file, source_name):
+    from .seg_common import read_source_file, validate_segments
     text = read_source_file(source_file)
-    # Вызов старого сегментера с min_words (передаём min_words)
-    min_words = 10
-    raw_segments = segment_miravet(text, source_name, min_words=min_words)
-
-    # Валидация
+    raw_segments = segment_miravet(text, source_name=source_name, min_words=10)
     return validate_segments(raw_segments, source_name)
+
+
 if __name__ == "__main__":
-    from pathlib import Path
+    candidates = [
+        Path("data/ObychaiMiraveta1319Fix_v2.txt"),
+        Path("data/ObychaiMiraveta1319Fix.txt"),
+        Path("/mnt/data/ObychaiMiraveta1319Fix_v2.txt"),
+    ]
 
-    # Test with text file
-    txt_path = Path("data/ObychaiMiraveta1319Fix.txt")
+    txt_path = next((p for p in candidates if p.exists()), None)
+    if txt_path is None:
+        print("Miravet source file not found. Tried:")
+        for p in candidates:
+            print(f"  - {p}")
+        raise SystemExit(1)
 
-    if txt_path.exists():
-        with open(txt_path, 'r', encoding='utf-8') as f:
-            text = f.read()
+    text = txt_path.read_text(encoding="utf-8", errors="replace")
+    segs = segment_miravet(text, "ObychaiMiraveta1319Fix")
 
-        segs = segment_miravet(text, "Miravet")
+    print("=" * 80)
+    print("CONSTITUCIONES DE MIRAVET (1319) — SEGMENTATION RESULT")
+    print("=" * 80)
+    print(f"Source: {txt_path}")
+    print(f"Total segments: {len(segs)}")
 
-        print("=" * 80)
-        print("CONSTITUCIONES DE MIRAVET (1319) SEGMENTATION RESULT")
-        print("=" * 80)
-        print(f"Total segments: {len(segs)}")
-        print("=" * 80)
+    total_words = sum(len(seg_text.split()) for _, seg_text in segs)
+    avg_words = total_words / len(segs) if segs else 0.0
+    print(f"Total words: {total_words}")
+    print(f"Average words per segment: {avg_words:.1f}")
 
-        # Statistics
-        total_words = sum(len(s[1].split()) for s in segs)
-        avg_words = total_words / len(segs) if segs else 0
-        print(f"\nTotal words: {total_words}")
-        print(f"Average words per segment: {avg_words:.1f}")
-        print("=" * 80)
+    article_nums = []
+    for seg_id, _ in segs:
+        m = re.search(r"_Art(\d+)$", seg_id)
+        if m:
+            article_nums.append(int(m.group(1)))
+    if article_nums:
+        print(f"Article range: {min(article_nums)}..{max(article_nums)}")
 
-        print("\nFIRST 10 SEGMENTS:")
-        print("=" * 80)
-        for sid, stxt in segs[:10]:
-            words = len(stxt.split())
-            preview = stxt[:80] + "..." if len(stxt) > 80 else stxt
-            print(f"{sid:25s} ({words:3d}w) {preview}")
+    print("\nFIRST 10 SEGMENTS:")
+    print("=" * 80)
+    for seg_id, seg_text in segs[:10]:
+        words = len(seg_text.split())
+        preview = seg_text[:120] + "..." if len(seg_text) > 120 else seg_text
+        print(f"{seg_id:40s} ({words:4d}w) {preview}")
 
-        print("\n" + "=" * 80)
-        print("LAST 10 SEGMENTS:")
-        print("=" * 80)
-        for sid, stxt in segs[-10:]:
-            words = len(stxt.split())
-            preview = stxt[:80] + "..." if len(stxt) > 80 else stxt
-            print(f"{sid:25s} ({words:3d}w) {preview}")
-    else:
-        print(f"File not found: {txt_path}")
+    print("\nLAST 10 SEGMENTS:")
+    print("=" * 80)
+    for seg_id, seg_text in segs[-10:]:
+        words = len(seg_text.split())
+        preview = seg_text[:120] + "..." if len(seg_text) > 120 else seg_text
+        print(f"{seg_id:40s} ({words:4d}w) {preview}")

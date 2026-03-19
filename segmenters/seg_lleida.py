@@ -1,150 +1,181 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Segmentation script for Costums de Lleida (1228)
-Обычаи Лериды - сегментация латинского текста
+Segmenter for Costums de Lleida (1228).
 
-Format: Articles marked with [N] where N is article number (1-171)
-Also contains Roman numeral sections [I], [II], [III] for major divisions
+Основная структурная единица:
+- статья [1]...[171]
+- отдельный вариант [60 bis]
+
+Крупные разделы [I], [II], [III] используются как структурные маркеры,
+но не отдаются как сегменты.
 """
+
+from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Tuple, Dict, Any
+
+_SECTION_RE = re.compile(r"^[IVX]+$", re.IGNORECASE)
+_ARTICLE_RE = re.compile(r"^\d+(?:\s*bis)?$", re.IGNORECASE)
+
+_MARKER_RE = re.compile(
+    r"(?m)^\s*\[(?P<id>\d+(?:\s*bis)?|[IVX]+)\]\s*(?P<rest>.*)$"
+)
+
+_END_MARKERS = (
+    "Expliciunt consuetudines civitatis Ilerde.",
+)
+
+_FOOTNOTE_RE = re.compile(r"^\s*\d+\s+[A-ZÁÉÍÓÚ]")
+_PAGE_RE = re.compile(r"^\s*\d{1,4}\s*$")
+_MULTI_SPACE_RE = re.compile(r"\s+")
+_HYPHEN_BREAK_RE = re.compile(r"(\w)-\s+(\w)")
+_LEADING_MARKER_RE = re.compile(r"^\s*\[(?:\d+(?:\s*bis)?|[IVX]+)\]\s*", re.IGNORECASE)
 
 
-def segment_lleida(text: str, debug: bool = False) -> List[Tuple[str, str]]:
-    """
-    Segment Costums de Lleida into individual articles.
+def normalize_article_no(raw_id: str) -> str:
+    return raw_id.strip().lower().replace(" ", "")
 
-    Args:
-        text: Full text of Costums de Lleida
-        debug: If True, print debugging information
 
-    Returns:
-        List of (article_id, article_text) tuples
-    """
-    lines = text.split('\n')
+def make_segment_id(source_name: str, article_no: str) -> str:
+    return f"{source_name}_Art{article_no}"
 
-    # Pattern for articles: [N] De ... or [I], [II], [III] for sections
-    article_pattern = re.compile(r'^\s*\[(\d+|[IVX]+)\]\s+(.+?)$')
 
-    boundaries = []
+def clean_text(text: str) -> str:
+    text = text.replace("\xa0", " ")
+    text = _HYPHEN_BREAK_RE.sub(r"\1\2", text)
+    text = _MULTI_SPACE_RE.sub(" ", text)
+    return text.strip()
 
-    for i, line in enumerate(lines):
-        match = article_pattern.match(line)
-        if match:
-            article_id = match.group(1)
-            title = match.group(2).strip()
-            boundaries.append({
-                'id': article_id,
-                'line': i,
-                'title': title
-            })
 
-            if debug and len(boundaries) <= 20:
-                print(f"Article [{article_id:>3s}] at line {i:4d}: {title[:60]}...")
-
-    if debug:
-        print(f"\nTotal articles found: {len(boundaries)}")
-
-    # Extract text for each article
-    articles = []
-
-    for idx, boundary in enumerate(boundaries):
-        article_id = boundary['id']
-        start_line = boundary['line']
-
-        # End is the start of next article or end of document
-        if idx + 1 < len(boundaries):
-            end_line = boundaries[idx + 1]['line']
-        else:
-            end_line = len(lines)
-
-        # Extract lines for this article
-        article_lines = lines[start_line:end_line]
-
-        # Clean up the text
-        article_text = extract_article_text(article_lines)
-
-        if article_text.strip():
-            articles.append((article_id, article_text))
-
-    # Sort by article number (convert to int where possible)
-    def sort_key(item):
-        article_id = item[0]
-        # Roman numerals come first (converted to negative numbers)
-        if re.match(r'^[IVX]+$', article_id):
-            roman_values = {'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5}
-            return (-1000, roman_values.get(article_id, 0))
-        # Arabic numbers
-        try:
-            return (int(article_id), 0)
-        except ValueError:
-            return (9999, 0)
-
-    articles.sort(key=sort_key)
-    
-    # Новый шаг: фильтруем только арабские номера
-    articles = [
-        (aid, txt)
-        for aid, txt in articles
-        if aid.isdigit()
-    ]
-
-    return articles
+def _looks_like_editorial_or_noise(line: str) -> bool:
+    s = line.strip()
+    if not s:
+        return True
+    if s in _END_MARKERS:
+        return True
+    if _PAGE_RE.match(s):
+        return True
+    if _FOOTNOTE_RE.match(s):
+        return True
+    return False
 
 
 def extract_article_text(lines: List[str]) -> str:
     """
-    Extract clean article text from lines.
-    Includes the article header and body.
+    Clean article body and robustly remove the leading structural marker.
+    This version removes [1], [2], [60 bis] even if blank/noisy lines appear first.
     """
-    result = []
+    result: List[str] = []
 
     for line in lines:
-        stripped = line.strip()
-        if not stripped:
+        s = line.strip().replace("\xa0", " ")
+        if _looks_like_editorial_or_noise(s):
+            if s in _END_MARKERS:
+                break
+            continue
+        result.append(s)
+
+    text = clean_text(" ".join(result))
+    text = _LEADING_MARKER_RE.sub("", text)
+    text = re.sub(r"^[\]\)\}.,:;\-\s]+", "", text)
+    text = clean_text(text)
+    return text
+
+
+def _scan_markers(text: str) -> List[Dict[str, Any]]:
+    markers: List[Dict[str, Any]] = []
+    for m in _MARKER_RE.finditer(text):
+        raw_id = m.group("id").strip()
+        is_section = bool(_SECTION_RE.fullmatch(raw_id))
+        is_article = bool(_ARTICLE_RE.fullmatch(raw_id))
+        if not (is_section or is_article):
+            continue
+        markers.append({
+            "raw_id": raw_id,
+            "start": m.start(),
+            "end": m.end(),
+            "is_section": is_section,
+            "is_article": is_article,
+        })
+    return markers
+
+
+def segment_lleida(text: str, source_name: str, debug: bool = False) -> List[Tuple[str, str]]:
+    """
+    Segment Costums de Lleida into numbered articles.
+
+    Output IDs use a unified style:
+      ObychaiLleidy12271228_Art1
+      ObychaiLleidy12271228_Art60bis
+      ObychaiLleidy12271228_Art171
+    """
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    markers = _scan_markers(text)
+
+    if debug:
+        print(f"Total structural markers found: {len(markers)}")
+        print(f"  Sections: {sum(1 for m in markers if m['is_section'])}")
+        print(f"  Articles: {sum(1 for m in markers if m['is_article'])}")
+
+    segments: List[Tuple[str, str]] = []
+    seen_article_ids = set()
+
+    for idx, marker in enumerate(markers):
+        if not marker["is_article"]:
             continue
 
-        result.append(stripped)
+        article_no = normalize_article_no(marker["raw_id"])
+        if article_no in seen_article_ids:
+            continue
 
-    # Join with spaces
-    text = ' '.join(result)
+        start = marker["start"]
+        end = markers[idx + 1]["start"] if idx + 1 < len(markers) else len(text)
+        block = text[start:end]
 
-    # Clean up multiple spaces
-    text = re.sub(r'\s+', ' ', text)
+        lines = block.split("\n")
+        article_text = extract_article_text(lines)
+        if not article_text:
+            continue
 
-    return text.strip()
+        seg_id = make_segment_id(source_name, article_no)
+        segments.append((seg_id, article_text))
+        seen_article_ids.add(article_no)
+
+        if debug and len(segments) <= 12:
+            print(f"  {seg_id}: {article_text[:100]}")
+
+    return segments
 
 
-def analyze_and_save(text: str, output_file: str, expected_count: int = 171):
-    """
-    Analyze segmentation and save results.
-    """
+def analyze_and_save(
+    text: str,
+    output_file: str,
+    source_name: str = "ObychaiLleidy12271228",
+    expected_main_count: int = 171,
+) -> List[Tuple[str, str]]:
     print("=" * 80)
     print("COSTUMS DE LLEIDA (1228) - ARTICLE SEGMENTATION")
     print("=" * 80)
 
-    articles = segment_lleida(text, debug=False)
+    articles = segment_lleida(text, source_name=source_name, debug=False)
 
-    # Statistics
-    article_ids = [aid for aid, _ in articles]
-    roman_articles = [aid for aid in article_ids if re.match(r'^[IVX]+$', aid)]
-    arabic_articles = [aid for aid in article_ids if re.match(r'^\d+$', aid)]
+    article_ids = [seg_id.rsplit("_Art", 1)[1] for seg_id, _ in articles]
+    bis_articles = [aid for aid in article_ids if aid.endswith("bis")]
+    main_articles = [aid for aid in article_ids if aid.isdigit()]
 
-    coverage = len(arabic_articles) / expected_count * 100
+    coverage = len(main_articles) / expected_main_count * 100 if expected_main_count else 0.0
 
-    print(f"Expected: {expected_count} articles")
-    print(f"Found: {len(articles)} total articles")
-    print(f"  - Roman numeral sections: {len(roman_articles)}")
-    print(f"  - Numbered articles: {len(arabic_articles)}")
-    print(f"Coverage: {coverage:.1f}%")
+    print(f"Expected main articles: {expected_main_count}")
+    print(f"Found total segments: {len(articles)}")
+    print(f"  - Main numbered articles: {len(main_articles)}")
+    print(f"  - Bis articles: {len(bis_articles)}")
+    print(f"Coverage of main sequence: {coverage:.1f}%")
 
-    # Check for duplicates
     from collections import Counter
     duplicates = [(n, c) for n, c in Counter(article_ids).items() if c > 1]
-
     if duplicates:
         print(f"\nDuplicates: {len(duplicates)}")
         for num, count in sorted(duplicates)[:5]:
@@ -152,77 +183,78 @@ def analyze_and_save(text: str, output_file: str, expected_count: int = 171):
     else:
         print("\nNo duplicates")
 
-    # Check for missing articles
-    expected_nums = set(str(i) for i in range(1, expected_count + 1))
-    found_nums = set(arabic_articles)
-    missing = sorted([int(n) for n in (expected_nums - found_nums)])
-
+    expected_nums = set(str(i) for i in range(1, expected_main_count + 1))
+    found_nums = set(main_articles)
+    missing = sorted(int(n) for n in (expected_nums - found_nums))
     if missing:
-        print(f"\nMissing: {len(missing)} articles")
+        print(f"\nMissing main articles: {len(missing)}")
         if len(missing) <= 15:
             print(f"  {missing}")
         else:
             print(f"  First 10: {missing[:10]}")
             print(f"  Last 5: {missing[-5:]}")
     else:
-        print("\nNo missing articles")
+        print("\nNo missing main articles")
 
-    print("=" * 80)
-
-    # Verdict
-    if coverage >= 90 and not duplicates:
-        print(f"✓ SUCCESS: {coverage:.1f}% coverage, no duplicates")
-    else:
-        print(f"⚠ {coverage:.1f}% coverage, {len(duplicates)} duplicates")
-
-    print("=" * 80)
-
-    # Save results
-    with open(output_file, 'w', encoding='utf-8') as f:
-        f.write(f"Total articles: {len(articles)}\n")
-        f.write(f"Roman sections: {len(roman_articles)}, Numbered: {len(arabic_articles)}\n")
+    with open(output_file, "w", encoding="utf-8") as f:
+        f.write(f"Total segments: {len(articles)}\n")
+        f.write(f"Main articles: {len(main_articles)}\n")
+        f.write(f"Bis articles: {len(bis_articles)}\n")
         f.write("=" * 80 + "\n\n")
-
-        for article_id, text in articles:
+        for seg_id, article_text in articles:
             f.write("=" * 80 + "\n")
-            f.write(f"ARTICLE [{article_id}]\n")
+            f.write(f"{seg_id}\n")
             f.write("=" * 80 + "\n")
-            f.write(text)
+            f.write(article_text)
             f.write("\n\n")
 
-    print(f"Results saved to {output_file}")
-
+    print(f"\nResults saved to {output_file}")
     return articles
 
 
-def main():
-    """Main entry point"""
-    file_lleida = Path('data/ObychaiLleidy12271228_v2.txt')
-
-    if file_lleida.exists():
-        print(f"Processing Costums de Lleida from {file_lleida}...")
-        text = file_lleida.read_text(encoding='utf-8')
-        docs = analyze_and_save(text, 
-                               output_file='costums_lleida_segmented.txt',
-                               expected_count=171)
-    else:
-        print(f"Error: {file_lleida} not found")
-
-
-def segment_lleida_unified(
-    source_file, source_name
-):
+def segment_lleida_unified(source_file, source_name):
     """
-    Унифицированная сегментация Lleida.
-    Читает файл, применяет ограничения по словам.
+    Unified Lleida segmenter.
+    Reads the source file and returns list[(id, text)] with unified IDs.
     """
-    from .seg_common import read_source_file, apply_word_limits, validate_segments
+    from .seg_common import read_source_file, validate_segments
 
     text = read_source_file(source_file)
-    # Вызов старого сегментера с debug=False
-    raw_segments = segment_lleida(text, debug=False)
-
-    # Валидация
+    raw_segments = segment_lleida(text, source_name=source_name, debug=False)
     return validate_segments(raw_segments, source_name)
-if __name__ == '__main__':
+
+
+def main():
+    candidates = [
+        Path("data/ObychaiLleidy12271228_v2.txt"),
+        Path("ObychaiLleidy12271228_v2.txt"),
+        Path("/mnt/data/ObychaiLleidy12271228_v2.txt"),
+    ]
+
+    file_lleida = next((p for p in candidates if p.exists()), None)
+    if file_lleida is None:
+        print("Error: source file not found. Tried:")
+        for p in candidates:
+            print(f"  - {p}")
+        raise SystemExit(1)
+
+    print(f"Processing Costums de Lleida from {file_lleida}...")
+    text = file_lleida.read_text(encoding="utf-8", errors="replace")
+    articles = analyze_and_save(
+        text,
+        output_file="costums_lleida_segmented.txt",
+        source_name="ObychaiLleidy12271228",
+        expected_main_count=171,
+    )
+
+    print("\nFirst 5 segments:")
+    for seg_id, seg_text in articles[:5]:
+        print(f"  {seg_id}: {seg_text[:120]}")
+
+    print("\nLast 5 segments:")
+    for seg_id, seg_text in articles[-5:]:
+        print(f"  {seg_id}: {seg_text[:120]}")
+
+
+if __name__ == "__main__":
     main()
