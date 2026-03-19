@@ -4,16 +4,7 @@
 """
 pipeline_unified.py
 
-Единый пайплайн для:
-- латинские источники -> Usatges
-- (латинские источники + Usatges) -> грамоты
-- любых других экспериментов, где обе стороны задаются через config
-
-Новая логика:
-- сегментеры самодостаточные
-- source_segmenters.segment_source(...) принимает path, а не text
-- конфиг больше не влияет на сегментацию
-- дополнительное дробление делается только на этапе chunking
+Версия с подробным пошаговым выводом.
 """
 
 from __future__ import annotations
@@ -22,6 +13,8 @@ import argparse
 import csv
 import importlib
 import re
+import sys
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -49,25 +42,8 @@ from features import (
 )
 
 
-# ----------------------------- data model -----------------------------
-
 @dataclass(frozen=True)
 class Segment:
-    """
-    Единое представление сегмента.
-
-    id:
-      - уникальный идентификатор конкретного сравниваемого элемента (leaf)
-    parent_id:
-      - идентификатор «структурного» сегмента-родителя
-      - если child-окна не генерируются, parent_id == id
-    corpus:
-      - ключ корпуса из конфига
-    side:
-      - "left" | "right"
-    meta:
-      - метаданные, если доступны
-    """
     id: str
     text: str
     corpus: str
@@ -76,18 +52,23 @@ class Segment:
     meta: Dict[str, Any] = field(default_factory=dict)
 
 
-# ----------------------------- config loading -----------------------------
+class ProgressLogger:
+    def __init__(self, enabled: bool = True):
+        self.enabled = enabled
+        self.t0 = time.time()
+
+    def log(self, msg: str) -> None:
+        if not self.enabled:
+            return
+        dt = time.time() - self.t0
+        print(f"[{dt:8.1f}s] {msg}", flush=True)
+
 
 def load_config_module(module_name: str) -> Any:
     return importlib.import_module(module_name)
 
 
 def resolve_group_tokens(items: Sequence[str], groups: Dict[str, List[str]]) -> List[str]:
-    """
-    items может содержать:
-      - corpus_id, например "UsatgesBarcelona"
-      - токены групп "@LATIN_SOURCES"
-    """
     out: List[str] = []
     for x in items:
         if isinstance(x, str) and x.startswith("@"):
@@ -97,21 +78,11 @@ def resolve_group_tokens(items: Sequence[str], groups: Dict[str, List[str]]) -> 
     return out
 
 
-# ----------------------------- segmenter adapters -----------------------------
-
 def _normalize_segment_list(raw: Any) -> List[Tuple[str, str, Dict[str, Any]]]:
-    """
-    Приводит разные форматы сегментеров к единому виду:
-      - tuple/list: (id, text)
-      - dict: {'id':..., 'text':..., 'metadata':...} или {'id':..., 'text':...}
-
-    Возвращает список (id, text, meta).
-    """
     if raw is None:
         return []
 
     out: List[Tuple[str, str, Dict[str, Any]]] = []
-
     for item in raw:
         if isinstance(item, dict):
             seg_id = str(item.get("id", ""))
@@ -129,45 +100,29 @@ def _normalize_segment_list(raw: Any) -> List[Tuple[str, str, Dict[str, Any]]]:
             continue
 
         raise TypeError(f"Unsupported segment shape: {type(item)} => {repr(item)[:200]}")
-
     return out
 
 
-def segment_corpus(corpus_id: str, corpus_spec: Dict[str, Any]) -> List[Tuple[str, str, Dict[str, Any]]]:
-    """
-    Возвращает базовые структурные сегменты без chunking.
-
-    В новой логике сегментер:
-    - сам читает файл
-    - сам знает, как сегментировать
-    - не зависит от cfg / reader / kind
-
-    pipeline только передаёт path + source_name в source_segmenters.
-    """
+def segment_corpus(corpus_id: str, corpus_spec: Dict[str, Any], logger: ProgressLogger) -> List[Tuple[str, str, Dict[str, Any]]]:
     source_file = Path(corpus_spec["path"])
+    logger.log(f"segment_corpus: {corpus_id} -> {source_file}")
+    if not source_file.exists():
+        raise FileNotFoundError(f"Corpus file not found for {corpus_id}: {source_file}")
+
     seg_mod = importlib.import_module("source_segmenters")
     raw = seg_mod.segment_source(source_file, corpus_id)
-    return _normalize_segment_list(raw)
+    norm = _normalize_segment_list(raw)
+    logger.log(f"segment_corpus: {corpus_id} done, segments={len(norm)}")
+    return norm
 
-
-# ----------------------------- chunking -----------------------------
 
 def _word_tokens(text: str) -> List[str]:
     return [w for w in text.split() if w]
 
 
-def chunk_segments(
-    base: Sequence[Segment],
-    chunking_cfg: Dict[str, Any],
-) -> List[Segment]:
-    """
-    Иерархичное разбиение:
-      - не трогаем «чистую» структурную сегментацию
-      - при необходимости создаём окна (leaf) для сравнения
-
-    mode: "sliding_window_words"
-    """
+def chunk_segments(base: Sequence[Segment], chunking_cfg: Dict[str, Any], logger: ProgressLogger, side: str) -> List[Segment]:
     if not chunking_cfg or not bool(chunking_cfg.get("enabled")):
+        logger.log(f"chunking[{side}]: disabled, keep {len(base)} segments")
         return list(base)
 
     mode = chunking_cfg.get("mode", "sliding_window_words")
@@ -180,11 +135,13 @@ def chunk_segments(
     per = dict(chunking_cfg.get("per_corpus") or {})
 
     out: List[Segment] = []
+    produced = 0
 
     for seg in base:
         ov = dict(per.get(seg.corpus) or {})
         if ov.get("enabled", True) is False:
             out.append(seg)
+            produced += 1
             continue
 
         window_words = int(ov.get("window_words", w_default))
@@ -192,12 +149,9 @@ def chunk_segments(
         min_words = int(ov.get("min_words", min_default))
 
         words = _word_tokens(seg.text)
-        if len(words) < min_words:
+        if len(words) < min_words or len(words) <= window_words:
             out.append(seg)
-            continue
-
-        if len(words) <= window_words:
-            out.append(seg)
+            produced += 1
             continue
 
         step = max(1, window_words - max(0, overlap_words))
@@ -206,7 +160,6 @@ def chunk_segments(
             end = min(len(words), start + window_words)
             if end - start < min_words:
                 continue
-
             chunk_text = " ".join(words[start:end])
             leaf_id = f"{seg.parent_id}__w{idx}_W{start}-{end}"
 
@@ -225,15 +178,14 @@ def chunk_segments(
                 parent_id=seg.parent_id,
                 meta=meta,
             ))
+            produced += 1
             idx += 1
-
             if end == len(words):
                 break
 
+    logger.log(f"chunking[{side}]: input={len(base)} output={produced}")
     return out
 
-
-# ----------------------------- metadata helpers -----------------------------
 
 _YEAR_RE_1 = re.compile(r"_Y(\d{3,4})")
 _DOC_RE_1 = re.compile(r"_doc(\d+)", re.IGNORECASE)
@@ -248,7 +200,6 @@ def extract_charter_year(seg: Segment) -> Optional[int]:
                 return int(seg.meta[key])
             except Exception:
                 pass
-
     m = _YEAR_RE_1.search(seg.parent_id)
     if m:
         try:
@@ -265,7 +216,6 @@ def extract_charter_doc_no(seg: Segment) -> Optional[int]:
                 return int(seg.meta[key])
             except Exception:
                 pass
-
     m = _DOC_RE_1.search(seg.parent_id)
     if m:
         return int(m.group(1))
@@ -289,24 +239,26 @@ def is_charter_corpus(corpus_id: str, corpus_spec: Dict[str, Any]) -> bool:
     return corpus_id in {"Gramoty911", "Gramoty12"}
 
 
-# ----------------------------- preprocessing -----------------------------
-
 def lemmatize_segments(
     segments: Sequence[Segment],
     lemmatizer: LatinLemmatizer,
     min_lemma_length: int,
+    logger: ProgressLogger,
+    label: str,
 ) -> Dict[str, List[str]]:
+    total = len(segments)
+    logger.log(f"lemmatize[{label}]: start, segments={total}")
     lemmas_by_id: Dict[str, List[str]] = {}
-    for seg in segments:
+    for i, seg in enumerate(segments, 1):
         try:
             lem = preprocess_segment(seg.text, lemmatizer, min_length=min_lemma_length)
         except Exception:
             lem = []
         lemmas_by_id[seg.id] = lem
+        if i % 100 == 0 or i == total:
+            logger.log(f"lemmatize[{label}]: {i}/{total}")
     return lemmas_by_id
 
-
-# ----------------------------- candidate selection -----------------------------
 
 def cosine_candidates_dense(
     tfidf_left: np.ndarray,
@@ -315,11 +267,12 @@ def cosine_candidates_dense(
     right_ids: List[str],
     threshold: float,
     top_k_per_left: Optional[int],
+    logger: ProgressLogger,
 ) -> List[Tuple[str, str, float]]:
-    """
-    Генерирует пары кандидатов по TF-IDF cosine.
-    Реализация dense: sim = A @ B.T
-    """
+    logger.log(
+        f"candidates: cosine start, left={tfidf_left.shape}, right={tfidf_right.shape}, "
+        f"threshold={threshold}, top_k={top_k_per_left}"
+    )
     sim = tfidf_left @ tfidf_right.T
 
     pairs: List[Tuple[str, str, float]] = []
@@ -327,6 +280,7 @@ def cosine_candidates_dense(
         rows, cols = np.where(sim >= threshold)
         for i, j in zip(rows, cols):
             pairs.append((left_ids[int(i)], right_ids[int(j)], float(sim[int(i), int(j)])))
+        logger.log(f"candidates: found={len(pairs)}")
         return pairs
 
     k = int(top_k_per_left)
@@ -344,10 +298,13 @@ def cosine_candidates_dense(
             v = float(row[int(j)])
             if v >= threshold:
                 pairs.append((left_ids[i], right_ids[int(j)], v))
+
+        if (i + 1) % 100 == 0 or i + 1 == sim.shape[0]:
+            logger.log(f"candidates: processed left rows {i + 1}/{sim.shape[0]}, pairs={len(pairs)}")
+
+    logger.log(f"candidates: found={len(pairs)}")
     return pairs
 
-
-# ----------------------------- scoring + alignment -----------------------------
 
 def compute_borrow_score(
     cos_sim: float,
@@ -396,8 +353,6 @@ def maybe_align(
     )
     return al_a, al_b, float(sw)
 
-
-# ----------------------------- aggregation -----------------------------
 
 def node_id_for_level(seg: Segment, level: str) -> str:
     if level == "leaf":
@@ -464,27 +419,17 @@ def aggregate_rows(
     return rows
 
 
-# ----------------------------- visualization -----------------------------
-
 def render_bipartite_graph(
     graph_rows: Sequence[Dict[str, Any]],
     left_nodes: Dict[str, Dict[str, Any]],
     right_nodes: Dict[str, Dict[str, Any]],
     out_png: Path,
-    straight_edges: bool = True,
-    label_left: bool = True,
-    label_right: bool = True,
-    top_n_edges: Optional[int] = None,
 ) -> None:
     if plt is None or nx is None:
         return
 
-    rows = list(graph_rows)
-    if top_n_edges is not None and len(rows) > int(top_n_edges):
-        rows = sorted(rows, key=lambda r: -float(r.get("weight", 0.0)))[: int(top_n_edges)]
-
     G = nx.DiGraph()
-    for r in rows:
+    for r in graph_rows:
         u = str(r["left_node"])
         v = str(r["right_node"])
         w = float(r.get("weight", 0.0))
@@ -501,22 +446,13 @@ def render_bipartite_graph(
     right_list = [n for n in G.nodes() if G.nodes[n].get("side") == "right"]
 
     left_list = sorted(left_list, key=lambda n: (str(G.nodes[n].get("group", "")), str(n)))
-    right_list = sorted(
-        right_list,
-        key=lambda n: G.nodes[n].get("sort_key", (10**9, 10**9, str(n))),
-    )
+    right_list = sorted(right_list, key=lambda n: G.nodes[n].get("sort_key", (10**9, 10**9, str(n))))
 
     pos: Dict[str, Tuple[float, float]] = {}
     y = 0.0
-    last_group = None
     for n in left_list:
-        g = G.nodes[n].get("group", "")
-        if last_group is not None and g != last_group:
-            y += 0.8
         pos[n] = (0.0, -y)
         y += 1.0
-        last_group = g
-
     total_left_h = max(1.0, y)
     for i, n in enumerate(right_list):
         pos[n] = (4.0, -(i * (total_left_h / max(1, len(right_list)))))
@@ -542,15 +478,8 @@ def render_bipartite_graph(
     )
 
     edgelist = list(G.edges())
-    weights = [
-        max(0.6, min(4.0, 0.6 + 3.0 * float(G.edges[e].get("weight", 0.0))))
-        for e in edgelist
-    ]
+    weights = [max(0.6, min(4.0, 0.6 + 3.0 * float(G.edges[e].get("weight", 0.0)))) for e in edgelist]
     edge_colors = [G.nodes[u].get("color", "#666666") for (u, v) in edgelist]
-
-    kwargs = {}
-    if not straight_edges:
-        kwargs["connectionstyle"] = "arc3,rad=0.03"
 
     nx.draw_networkx_edges(
         G, pos,
@@ -561,39 +490,14 @@ def render_bipartite_graph(
         arrows=True,
         arrowstyle="-|>",
         arrowsize=12,
-        **kwargs,
     )
 
-    if label_left:
-        for n in left_list:
-            x, y = pos[n]
-            ax.text(x - 0.06, y, G.nodes[n].get("label", str(n)), fontsize=13, ha="right", va="center")
-    if label_right:
-        for n in right_list:
-            x, y = pos[n]
-            ax.text(x + 0.06, y, G.nodes[n].get("label", str(n)), fontsize=12, ha="left", va="center")
-
-    legend = []
-    seen = set()
     for n in left_list:
-        lbl = G.nodes[n].get("label", str(n))
-        col = G.nodes[n].get("color", "#999999")
-        key = (lbl, col)
-        if key in seen:
-            continue
-        legend.append(Patch(facecolor=col, label=lbl))
-        seen.add(key)
-
-    if legend:
-        plt.legend(
-            handles=legend,
-            loc="upper center",
-            bbox_to_anchor=(0.5, 0.98),
-            ncol=4,
-            fontsize=12,
-            frameon=True,
-            framealpha=0.95,
-        )
+        x, y = pos[n]
+        ax.text(x - 0.06, y, G.nodes[n].get("label", str(n)), fontsize=13, ha="right", va="center")
+    for n in right_list:
+        x, y = pos[n]
+        ax.text(x + 0.06, y, G.nodes[n].get("label", str(n)), fontsize=12, ha="left", va="center")
 
     plt.axis("off")
     out_png.parent.mkdir(parents=True, exist_ok=True)
@@ -608,14 +512,6 @@ def build_node_metadata(
     node_level: str,
     side: str,
 ) -> Dict[str, Dict[str, Any]]:
-    """
-    Собирает метаданные по узлам графа.
-
-    Новая логика:
-    - без special-case на старые segmenters
-    - charter-like корпуса определяются по corpus_id/kind
-    - для остальных сортировка максимально нейтральная
-    """
     out: Dict[str, Dict[str, Any]] = {}
 
     for seg in segments:
@@ -628,24 +524,12 @@ def build_node_metadata(
 
         corpus_spec = corpora.get(seg.corpus, {})
         color = corpus_spec.get("color", "#999999")
-
-        if node_level == "corpus":
-            label = corpus_spec.get("display_ru", seg.corpus)
-        else:
-            label = node_id
+        label = corpus_spec.get("display_ru", seg.corpus) if node_level == "corpus" else node_id
 
         if is_charter_corpus(seg.corpus, corpus_spec):
             year = extract_charter_year(seg) or 999999
             doc_no = extract_charter_doc_no(seg) or 999999
             sort_key = (year, doc_no, node_id)
-
-            if node_level in ("parent", "leaf"):
-                parts = []
-                if year != 999999:
-                    parts.append(str(year))
-                if doc_no != 999999:
-                    parts.append(f"doc {doc_no}")
-                label = " / ".join(parts) if parts else node_id
         else:
             sort_key = generic_numeric_sort_key(node_id)
 
@@ -656,13 +540,32 @@ def build_node_metadata(
             "color": color,
             "sort_key": sort_key,
         }
-
     return out
 
 
-# ----------------------------- pipeline core -----------------------------
+def write_csv(rows: Sequence[Dict[str, Any]], path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not rows:
+        path.write_text("", encoding="utf-8")
+        return
 
-def run_experiment(config_module: Any, experiment_id: str) -> Dict[str, Any]:
+    fieldnames = sorted({k for r in rows for k in r.keys()})
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=fieldnames)
+        w.writeheader()
+        for r in rows:
+            w.writerow(r)
+
+
+def run_experiment(
+    config_module: Any,
+    experiment_id: str,
+    verbose: bool = True,
+    progress_every: int = 1000,
+) -> Dict[str, Any]:
+    logger = ProgressLogger(enabled=verbose)
+
+    logger.log(f"load config: start experiment={experiment_id}")
     corpora: Dict[str, Dict[str, Any]] = dict(getattr(config_module, "CORPORA"))
     groups: Dict[str, List[str]] = dict(getattr(config_module, "GROUPS", {}))
     experiments: Dict[str, Dict[str, Any]] = dict(getattr(config_module, "EXPERIMENTS"))
@@ -673,28 +576,29 @@ def run_experiment(config_module: Any, experiment_id: str) -> Dict[str, Any]:
     exp = experiments[experiment_id]
     out_dir = Path(exp["output"]["dir"])
     out_dir.mkdir(parents=True, exist_ok=True)
+    logger.log(f"output dir: {out_dir}")
 
-    # 1) resolve graph sides
     left_corpora = resolve_group_tokens(exp["graph_sides"]["left"], groups)
     right_corpora = resolve_group_tokens(exp["graph_sides"]["right"], groups)
+    logger.log(f"left corpora: {left_corpora}")
+    logger.log(f"right corpora: {right_corpora}")
 
-    # 2) mappings: from -> to
     mappings = exp.get("mappings") or [{"from": left_corpora, "to": right_corpora}]
     resolved_mappings = []
     for m in mappings:
         frm = resolve_group_tokens(m.get("from", []), groups)
         to = resolve_group_tokens(m.get("to", []), groups)
         resolved_mappings.append((frm, to))
+    logger.log(f"mappings: {resolved_mappings}")
 
-    # 3) segment all corpora once
     base_segments: List[Segment] = []
     used_corpora = sorted(set(left_corpora + right_corpora))
+    logger.log(f"segment all corpora: count={len(used_corpora)}")
 
     for cid in used_corpora:
         if cid not in corpora:
             raise KeyError(f"Corpus {cid} is not defined in CORPORA")
-
-        segs = segment_corpus(cid, corpora[cid])
+        segs = segment_corpus(cid, corpora[cid], logger)
         for seg_id, seg_text, meta in segs:
             base_segments.append(Segment(
                 id=seg_id,
@@ -704,8 +608,8 @@ def run_experiment(config_module: Any, experiment_id: str) -> Dict[str, Any]:
                 parent_id=seg_id,
                 meta=meta,
             ))
+    logger.log(f"base segments total: {len(base_segments)}")
 
-    # 4) assign sides
     base_by_corpus: Dict[str, List[Segment]] = {cid: [] for cid in used_corpora}
     for seg in base_segments:
         base_by_corpus[seg.corpus].append(seg)
@@ -713,57 +617,45 @@ def run_experiment(config_module: Any, experiment_id: str) -> Dict[str, Any]:
     left_base: List[Segment] = []
     for cid in left_corpora:
         for seg in base_by_corpus[cid]:
-            left_base.append(Segment(
-                id=seg.id,
-                text=seg.text,
-                corpus=seg.corpus,
-                side="left",
-                parent_id=seg.parent_id,
-                meta=dict(seg.meta),
-            ))
+            left_base.append(Segment(seg.id, seg.text, seg.corpus, "left", seg.parent_id, dict(seg.meta)))
 
     right_base: List[Segment] = []
     for cid in right_corpora:
         for seg in base_by_corpus[cid]:
-            right_base.append(Segment(
-                id=seg.id,
-                text=seg.text,
-                corpus=seg.corpus,
-                side="right",
-                parent_id=seg.parent_id,
-                meta=dict(seg.meta),
-            ))
+            right_base.append(Segment(seg.id, seg.text, seg.corpus, "right", seg.parent_id, dict(seg.meta)))
 
-    # 5) post-segmentation chunking
+    logger.log(f"left base={len(left_base)}, right base={len(right_base)}")
+
     chunk_cfg = dict(exp.get("chunking") or {})
-    left_leaf = chunk_segments(left_base, chunk_cfg)
-    right_leaf = chunk_segments(right_base, chunk_cfg)
+    left_leaf = chunk_segments(left_base, chunk_cfg, logger, "left")
+    right_leaf = chunk_segments(right_base, chunk_cfg, logger, "right")
+    logger.log(f"left leaf={len(left_leaf)}, right leaf={len(right_leaf)}")
 
-    # 6) preprocessing / lemmatization
     model = dict(exp.get("model") or {})
+    logger.log("lemmatizer: init")
     lemmatizer = LatinLemmatizer(use_collatinus=bool(model.get("use_collatinus", False)))
     min_lemma_length = int(model.get("min_lemma_length", 3))
 
-    left_lemmas = lemmatize_segments(left_leaf, lemmatizer, min_lemma_length)
-    right_lemmas = lemmatize_segments(right_leaf, lemmatizer, min_lemma_length)
+    left_lemmas = lemmatize_segments(left_leaf, lemmatizer, min_lemma_length, logger, "left")
+    right_lemmas = lemmatize_segments(right_leaf, lemmatizer, min_lemma_length, logger, "right")
 
-    # 7) build tfidf corpus and matrices
     left_ids = [s.id for s in left_leaf]
     right_ids = [s.id for s in right_leaf]
     corpus_lemmas = [left_lemmas[i] for i in left_ids] + [right_lemmas[i] for i in right_ids]
 
+    logger.log(f"tfidf: start, docs={len(corpus_lemmas)}")
     tfidf, vocab, term2idx = build_tfidf_matrix(
         corpus_lemmas,
         ngram_range=tuple(model.get("ngram_range", (1, 3))),
         max_df=float(model.get("max_df", 0.5)),
         min_df=int(model.get("min_df", 2)),
     )
+    logger.log(f"tfidf: done, matrix_shape={getattr(tfidf, 'shape', None)}, vocab={len(vocab)}")
 
     n_left = len(left_ids)
     tfidf_left = tfidf[:n_left]
     tfidf_right = tfidf[n_left:]
 
-    # 8) candidates (cosine)
     cand_cfg = dict(exp.get("candidate_selection") or {})
     threshold = float(cand_cfg.get("threshold", model.get("tfidf_cosine_threshold", 0.08)))
     top_k = cand_cfg.get("top_k_per_left")
@@ -775,11 +667,13 @@ def run_experiment(config_module: Any, experiment_id: str) -> Dict[str, Any]:
         right_ids=right_ids,
         threshold=threshold,
         top_k_per_left=top_k,
+        logger=logger,
     )
 
-    # 9) score + optional filters + optional alignment
+    logger.log("idf: compute")
     idf = compute_idf(corpus_lemmas)
     align_enabled = bool((exp.get("alignment") or {}).get("enabled", True))
+    logger.log(f"alignment enabled={align_enabled}")
 
     left_seg_by_id = {s.id: s for s in left_leaf}
     right_seg_by_id = {s.id: s for s in right_leaf}
@@ -792,14 +686,14 @@ def run_experiment(config_module: Any, experiment_id: str) -> Dict[str, Any]:
     right_level = str(agg.get("right_node_level", "parent"))
 
     detail_rows: List[Dict[str, Any]] = []
+    logger.log(f"score candidates: total={len(candidates)}")
 
-    for left_id, right_id, cos_sim in candidates:
+    for idx, (left_id, right_id, cos_sim) in enumerate(candidates, 1):
         ls = left_seg_by_id.get(left_id)
         rs = right_seg_by_id.get(right_id)
         if ls is None or rs is None:
             continue
 
-        # corpus-level mapping constraint
         allowed = False
         for frm, to in resolved_mappings:
             if ls.corpus in frm and rs.corpus in to:
@@ -808,7 +702,6 @@ def run_experiment(config_module: Any, experiment_id: str) -> Dict[str, Any]:
         if not allowed:
             continue
 
-        # right_not_before_by_left
         nb = not_before_map.get(ls.corpus)
         if nb is not None:
             y = extract_charter_year(rs)
@@ -828,7 +721,7 @@ def run_experiment(config_module: Any, experiment_id: str) -> Dict[str, Any]:
         if sw < float(model.get("sw_min_score", 0.0)):
             continue
 
-        row = {
+        detail_rows.append({
             "left_leaf_id": left_id,
             "right_leaf_id": right_id,
             "left_parent_id": ls.parent_id,
@@ -848,8 +741,10 @@ def run_experiment(config_module: Any, experiment_id: str) -> Dict[str, Any]:
             "right_doc_no": extract_charter_doc_no(rs),
             "left_text_snippet": ls.text[:220].replace("\n", " ").strip(),
             "right_text_snippet": rs.text[:220].replace("\n", " ").strip(),
-        }
-        detail_rows.append(row)
+        })
+
+        if idx % max(1, progress_every) == 0 or idx == len(candidates):
+            logger.log(f"score candidates: {idx}/{len(candidates)}, kept={len(detail_rows)}")
 
     detail_rows.sort(
         key=lambda r: (
@@ -860,8 +755,8 @@ def run_experiment(config_module: Any, experiment_id: str) -> Dict[str, Any]:
             str(r["right_leaf_id"]),
         )
     )
+    logger.log(f"detail rows: {len(detail_rows)}")
 
-    # 10) aggregate for graph/table
     graph_rows = aggregate_rows(
         detail_rows,
         left_level=left_level,
@@ -869,20 +764,24 @@ def run_experiment(config_module: Any, experiment_id: str) -> Dict[str, Any]:
         weight_mode=str(agg.get("weight_mode", "max")),
         min_hits=int(agg.get("min_hits", 1)),
     )
+    logger.log(f"graph rows: {len(graph_rows)}")
 
-    # 11) output
     output_cfg = dict(exp.get("output") or {})
     if bool(output_cfg.get("write_detail_csv")):
-        write_csv(detail_rows, out_dir / "detail_pairs.csv")
+        path = out_dir / "detail_pairs.csv"
+        logger.log(f"write csv: {path}")
+        write_csv(detail_rows, path)
     if bool(output_cfg.get("write_graph_csv")):
-        write_csv(graph_rows, out_dir / "graph_rows.csv")
+        path = out_dir / "graph_rows.csv"
+        logger.log(f"write csv: {path}")
+        write_csv(graph_rows, path)
 
-    # 12) build graph + export gexf
     left_meta = build_node_metadata(left_leaf, corpora, node_level=left_level, side="left")
     right_meta = build_node_metadata(right_leaf, corpora, node_level=right_level, side="right")
 
     G = None
     if nx is not None:
+        logger.log("build networkx graph")
         G = nx.DiGraph()
         for nid, meta in left_meta.items():
             G.add_node(nid, **meta)
@@ -892,30 +791,20 @@ def run_experiment(config_module: Any, experiment_id: str) -> Dict[str, Any]:
             u = str(r["left_node"])
             v = str(r["right_node"])
             if u in left_meta and v in right_meta:
-                G.add_edge(
-                    u,
-                    v,
-                    weight=float(r.get("weight", 0.0)),
-                    hit_count=int(r.get("hit_count", 1)),
-                )
+                G.add_edge(u, v, weight=float(r.get("weight", 0.0)), hit_count=int(r.get("hit_count", 1)))
 
         if bool(output_cfg.get("write_gexf")):
-            nx.write_gexf(G, out_dir / "graph.gexf")
+            path = out_dir / "graph.gexf"
+            logger.log(f"write gexf: {path}")
+            nx.write_gexf(G, path)
 
-    # 13) PNG viz
     viz_cfg = dict(exp.get("viz") or {})
     if bool(viz_cfg.get("enabled")) and bool(output_cfg.get("write_png")):
-        render_bipartite_graph(
-            graph_rows=graph_rows,
-            left_nodes=left_meta,
-            right_nodes=right_meta,
-            out_png=out_dir / "graph.png",
-            straight_edges=bool(viz_cfg.get("straight_edges", True)),
-            label_left=bool(viz_cfg.get("label_left", True)),
-            label_right=bool(viz_cfg.get("label_right", True)),
-            top_n_edges=viz_cfg.get("top_n_edges"),
-        )
+        path = out_dir / "graph.png"
+        logger.log(f"render png: {path}")
+        render_bipartite_graph(graph_rows, left_meta, right_meta, path)
 
+    logger.log("experiment finished")
     return {
         "experiment_id": experiment_id,
         "detail_rows": detail_rows,
@@ -932,36 +821,27 @@ def run_experiment(config_module: Any, experiment_id: str) -> Dict[str, Any]:
     }
 
 
-def write_csv(rows: Sequence[Dict[str, Any]], path: Path) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if not rows:
-        path.write_text("", encoding="utf-8")
-        return
-
-    fieldnames = sorted({k for r in rows for k in r.keys()})
-    with open(path, "w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=fieldnames)
-        w.writeheader()
-        for r in rows:
-            w.writerow(r)
-
-
-# ----------------------------- CLI -----------------------------
-
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", default="config_unified", help="Python module name, e.g. config_unified")
     ap.add_argument("--experiment", required=True, help="Experiment id, see EXPERIMENTS in config")
+    ap.add_argument("--quiet", action="store_true", help="Disable progress logs")
+    ap.add_argument("--progress-every", type=int, default=1000, help="Progress print period for candidate scoring")
     args = ap.parse_args()
 
     cfg_mod = load_config_module(args.config)
-    result = run_experiment(cfg_mod, args.experiment)
+    result = run_experiment(
+        cfg_mod,
+        args.experiment,
+        verbose=not args.quiet,
+        progress_every=args.progress_every,
+    )
 
     stats = result.get("stats") or {}
-    print(f"[unified] experiment={args.experiment}")
+    print(f"[unified] experiment={args.experiment}", flush=True)
     for k in sorted(stats.keys()):
-        print(f"[unified] {k}: {stats[k]}")
-    print(f"[unified] out_dir: {result.get('out_dir')}")
+        print(f"[unified] {k}: {stats[k]}", flush=True)
+    print(f"[unified] out_dir: {result.get('out_dir')}", flush=True)
 
 
 if __name__ == "__main__":

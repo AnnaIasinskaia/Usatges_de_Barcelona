@@ -184,13 +184,13 @@ MODEL_DEFAULTS = {
 
 EXPERIMENTS = {
     "test": {
-        "description": "Smoke test: CorpusJuris → UsatgesBarcelona",
+        "description": "Smoke test: Evangelium → UsatgesBarcelona",
         "graph_sides": {
-            "left": ["CorpusJuris"],
+            "left": ["Evangelium"],
             "right": ["UsatgesBarcelona"],
         },
         "mappings": [
-            {"from": ["CorpusJuris"], "to": ["UsatgesBarcelona"]},
+            {"from": ["Evangelium"], "to": ["UsatgesBarcelona"]},
         ],
         "chunking": {
             "enabled": False,
@@ -212,7 +212,7 @@ EXPERIMENTS = {
             "keep_best_evidence": True,
         },
         "viz": {
-            "enabled": False,
+            "enabled": True,
             "straight_edges": True,
             "edge_color_by": "left_corpus",
             "label_left": False,
@@ -224,7 +224,7 @@ EXPERIMENTS = {
             "write_detail_csv": True,
             "write_graph_csv": True,
             "write_gexf": False,
-            "write_png": False,
+            "write_png": True,
         },
     },
 
