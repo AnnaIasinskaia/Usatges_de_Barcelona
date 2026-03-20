@@ -1,127 +1,217 @@
-"""Segmenter for Corpus Juris Civilis (Digesta / Pandectae)."""
+"""Stable segmenter for Corpus Juris Civilis (Digesta / Pandectae).
+
+Подход:
+- максимально простой line-based parser;
+- regex только на структурном номере Dig., без шумового слоя;
+- дубликаты id схлопываются: сохраняется самый длинный текст;
+- title-headers вида Dig. x.y.0. не становятся сегментами;
+- unified-вход без повторной validate_segments().
+"""
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
-from typing import List, Tuple
+from typing import Dict, List, Optional, Tuple
+import re
 
 from .seg_common import clean_text, validate_segments, read_source_file
 
 
-# Ищем заголовки фрагментов Digest:
-# Dig. 1.1.1pr.
-# Dig. 1.1.1.1
-# Dig. 1.2.2.14
-#
-# В тексте встречаются:
-# - с завершающей точкой
-# - без неё
-# - с пробелами
-_DIG_RE = re.compile(
-    r"(?m)^\s*Dig\.\s*"
-    r"(?P<num>\d+\.\d+\.\d+(?:pr|\.\d+)?)"
-    r"\.?\s*$",
+_DIG_HEADER_RE = re.compile(
+    r"^\s*Dig\.\s*([0-9]+\.[0-9]+\.[0-9]+(?:pr|\.[0-9]+)?)\.?\s*$",
     re.IGNORECASE,
 )
 
-# Строки-атрибуции обычно выглядят так:
-# Ulpianus 1 inst.
-# Pomponius l.S. enchir.
-# Gaius 1 ad l. xii tab.
-# Paulus 54 ad ed.
-#
-# Берём первую содержательную строку после Dig., если она похожа на attribution line.
 _AUTHOR_LINE_RE = re.compile(
     r"^[A-Z][A-Za-z\-]+\s+.+$"
 )
 
-# Явные заголовки книги/титула, которые не должны попадать в сегмент
-_BOOK_TITLE_RE = re.compile(
-    r"^(?:DIGESTORUM|SEU|LIBER\s+[A-Z]+|Dig\.\s*\d+\.\d+\.\d+(?:pr|\.\d+)?)",
-    re.IGNORECASE,
+_SKIP_PREFIXES = (
+    "DOMINI NOSTRI",
+    "IURIS ENUCLEATI",
+    "DIGESTORUM SEU",
+    "LIBER ",
+)
+
+_STOP_MARKERS = (
+    "INDEX",
+    "INDEX",
+    "APPENDIX",
+    "APPENDICES",
+    "GLOSSARIUM",
+    "ERRATA",
 )
 
 
+def _safe_str(obj) -> str:
+    if isinstance(obj, str):
+        return obj
+    try:
+        return str(obj)
+    except Exception:
+        return ""
+
+
 def _normalize_dig_num(num: str) -> str:
-    """
-    Нормализует номер Dig.-фрагмента для ID:
-    1.1.1pr  -> 1.1.1pr
-    1.1.1.1  -> 1.1.1.1
-    """
-    return re.sub(r"\s+", "", num.strip())
+    return "".join(ch for ch in _safe_str(num).strip() if not ch.isspace())
+
+
+def _is_title_header_num(dig_num: str) -> bool:
+    # Dig. 1.1.0. = title header, not a comparable fragment
+    return dig_num.endswith(".0")
 
 
 def _make_segment_id(source_name: str, dig_num: str) -> str:
-    """
-    Вынесение фактического номера из документа в ID.
-    """
-    dig_num = _normalize_dig_num(dig_num)
-    return f"{source_name}_Dig_{dig_num}"
+    return f"{source_name}_Dig_{_normalize_dig_num(dig_num)}"
 
 
-def _cleanup_body_lines(lines: List[str]) -> List[str]:
-    clean_lines: List[str] = []
-    for line in lines:
-        s = line.strip()
+def _is_page_line(s: str) -> bool:
+    s = s.strip()
+    return s.isdigit() and 1 <= len(s) <= 4
+
+
+def _is_noise_line(line: str) -> bool:
+    s = _safe_str(line).strip()
+    if not s:
+        return True
+
+    if _is_page_line(s):
+        return True
+
+    upper = s.upper()
+    if upper.startswith(_SKIP_PREFIXES):
+        return True
+
+    # Оглавления/концевые разделы
+    if any(marker in upper for marker in _STOP_MARKERS):
+        return True
+
+    return False
+
+
+def _extract_first_header_num(text: str) -> Optional[Tuple[int, int]]:
+    m = _DIG_HEADER_RE.search(text)
+    if not m:
+        return None
+    return m.start(), m.end()
+
+
+def _extract_author_and_body(lines: List[str]) -> Tuple[Optional[str], List[str]]:
+    if not lines:
+        return None, []
+
+    first = lines[0].strip()
+    if _AUTHOR_LINE_RE.match(first) and not first.upper().startswith("DIG."):
+        return first, lines[1:]
+    return None, lines
+
+
+def _finalize_segment(
+    out: Dict[str, str],
+    source_name: str,
+    dig_num: Optional[str],
+    body_lines: List[str],
+) -> None:
+    if not dig_num or _is_title_header_num(dig_num):
+        return
+
+    cleaned_lines: List[str] = []
+    for line in body_lines:
+        s = _safe_str(line).strip()
         if not s:
             continue
-        if _BOOK_TITLE_RE.match(s):
+        if _is_noise_line(s):
             continue
-        clean_lines.append(s)
-    return clean_lines
+        if _DIG_HEADER_RE.match(s):
+            continue
+        cleaned_lines.append(s)
+
+    if not cleaned_lines:
+        return
+
+    author_line, remaining = _extract_author_and_body(cleaned_lines)
+    body_text = clean_text(" ".join(remaining))
+    if author_line:
+        seg_text = clean_text(f"{author_line} {body_text}")
+    else:
+        seg_text = body_text
+
+    if len(seg_text.split()) < 5:
+        return
+
+    seg_id = _make_segment_id(source_name, dig_num)
+
+    # Дубликаты неизбежны в некоторых изданиях/OCR: сохраняем наиболее полный вариант.
+    prev = out.get(seg_id)
+    if prev is None or len(seg_text) > len(prev):
+        out[seg_id] = seg_text
 
 
 def segment_corpus_juris(text: str, source_name: str) -> List[Tuple[str, str]]:
     """
-    Чистая структурная сегментация Corpus Juris Civilis:
+    Устойчивая структурная сегментация Corpus Juris Civilis:
     один Dig.-фрагмент = один сегмент.
 
     Возвращает list[(segment_id, segment_text)].
     """
-    matches = list(_DIG_RE.finditer(text))
-    if not matches:
+    text = _safe_str(text)
+    if not text.strip():
         return []
 
-    segments: List[Tuple[str, str]] = []
+    lines = text.splitlines()
 
-    for i, m in enumerate(matches):
-        dig_num = _normalize_dig_num(m.group("num"))
-        start = m.end()
-        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+    # Начинаем с первого Dig.-заголовка, чтобы не тащить предисловия.
+    start_idx = 0
+    for i, line in enumerate(lines):
+        if _DIG_HEADER_RE.match(_safe_str(line).strip()):
+            start_idx = i
+            break
 
-        block = text[start:end].strip()
-        if not block:
+    seg_map: Dict[str, str] = {}
+    current_num: Optional[str] = None
+    current_lines: List[str] = []
+
+    for raw_line in lines[start_idx:]:
+        line = _safe_str(raw_line).rstrip("\n")
+        stripped = line.strip()
+
+        if not stripped:
+            if current_num is not None:
+                current_lines.append("")
             continue
 
-        raw_lines = [ln.rstrip() for ln in block.splitlines()]
-        raw_lines = [ln for ln in raw_lines if ln.strip()]
-        if not raw_lines:
+        m = _DIG_HEADER_RE.match(stripped)
+        if m:
+            _finalize_segment(seg_map, source_name, current_num, current_lines)
+            current_num = _normalize_dig_num(m.group(1))
+            current_lines = []
             continue
 
-        author_line = None
-        body_lines = raw_lines
+        # Конец полезного текста: если уже давно парсим Dig.-текст и встретили индекс/appendix.
+        upper = stripped.upper()
+        if current_num is not None and any(marker in upper for marker in _STOP_MARKERS):
+            break
 
-        # Первая строка часто — attribution line, сохраняем её.
-        first = raw_lines[0].strip()
-        if _AUTHOR_LINE_RE.match(first) and not _BOOK_TITLE_RE.match(first):
-            author_line = first
-            body_lines = raw_lines[1:]
+        if current_num is not None:
+            current_lines.append(stripped)
 
-        body_lines = _cleanup_body_lines(body_lines)
-        body_text = clean_text(" ".join(body_lines))
+    _finalize_segment(seg_map, source_name, current_num, current_lines)
 
-        if not body_text:
-            continue
+    def _sort_key(item: Tuple[str, str]):
+        seg_id = item[0]
+        dig = seg_id.split("_Dig_", 1)[-1]
+        head = dig[:-2] if dig.endswith("pr") else dig
+        parts = []
+        for p in head.split("."):
+            try:
+                parts.append(int(p))
+            except Exception:
+                parts.append(10**9)
+        if dig.endswith("pr"):
+            parts.append(-1)
+        return tuple(parts) + (seg_id,)
 
-        if author_line:
-            seg_text = clean_text(f"{author_line} {body_text}")
-        else:
-            seg_text = body_text
-
-        seg_id = _make_segment_id(source_name, dig_num)
-        segments.append((seg_id, seg_text))
-
+    segments = sorted(seg_map.items(), key=_sort_key)
     return validate_segments(segments, source_name)
 
 
@@ -131,16 +221,17 @@ def segment_corpus_juris_unified(source_file, source_name):
     Сегментер сам читает файл и возвращает list[(id, text)].
     """
     text = read_source_file(source_file)
-    raw_segments = segment_corpus_juris(text, source_name)
-    return validate_segments(raw_segments, source_name)
+    return segment_corpus_juris(text, source_name)
 
 
 if __name__ == "__main__":
+    import statistics
     import time
 
     candidates = [
         Path("data/Corpus_Juris_Civilis_v2.txt"),
-
+        Path("Corpus_Juris_Civilis_v2.txt"),
+        Path("/mnt/data/Corpus_Juris_Civilis_v2.txt"),
     ]
 
     p = next((x for x in candidates if x.exists()), None)
@@ -161,6 +252,12 @@ if __name__ == "__main__":
     print(f"CorpusJuris: {len(segs)} segments in {t2 - t1:.2f}s")
 
     if segs:
+        lengths = [len(txt.split()) for _, txt in segs]
+        print(
+            f"Lengths in words: min={min(lengths)}, "
+            f"median={statistics.median(lengths)}, max={max(lengths)}"
+        )
+
         print("\nFirst 5 segments:")
         for sid, txt in segs[:5]:
             print(f"  {sid}: {txt[:140]}")

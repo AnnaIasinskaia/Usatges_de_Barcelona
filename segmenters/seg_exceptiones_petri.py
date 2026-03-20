@@ -1,200 +1,319 @@
-"""Segmenter for Exceptiones Legum Romanorum Petri."""
+
+"""Segmenter for Exceptiones Legum Romanorum Petri (new edition / OCR v3)."""
 
 from __future__ import annotations
 
 import re
+import unicodedata
 from pathlib import Path
-from typing import List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from .seg_common import clean_text, validate_segments, read_source_file
 
 
-# Структура документа:
-#   Prologus.
-#   Liber primus.
-#   Cap. 1. De ...
-#   Cap. 2. ...
-#
-# Сегментируем по главам внутри книги.
-# В id выносим фактические номера книги и главы из документа:
-#   ExceptPetri_L1_C1
-#   ExceptPetri_L1_C2
-#   ExceptPetri_L2_C14
-#
-# При этом "Prologus" сохраняем отдельно:
-#   ExceptPetri_Prologus
+# ---------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------
 
-_LIBER_RE = re.compile(
-    r"(?im)^\s*Liber\s+(primus|secundus|tertius|quartus|quintus|sextus|septimus|octavus|nonus|decimus|\w+)\.?\s*$"
-)
-
-_CAP_RE = re.compile(
-    r"(?im)^\s*Cap\.\s*(\d+)\.?\s*(.*)$"
-)
-
-_PROLOGUS_RE = re.compile(
-    r"(?im)^\s*P\s*r\s*o\s*l\s*o\s*g\s*u\s*s\.?\s*$|^\s*Prologus\.?\s*$"
-)
-
-_PAGE_RE = re.compile(r"^\s*\d{1,4}\s*$")
-_RUNNING_RE = re.compile(r"^\s*Liber\s+[ivxlcdm0-9]+\s*[\.,]?\s*\d*\s*$", re.IGNORECASE)
-_FOOTNOTE_RE = re.compile(r"^\s*\d+\)\s+")
-_PAREN_REF_RE = re.compile(r"^\s*\(.*\)\s*$")
-_INLINE_FOOTNOTE_NUM_RE = re.compile(r"\b\d+\)")
-_HYPHEN_SPLIT_RE = re.compile(r"(\w)-\s+(\w)")
-
-_ORDINALS = {
-    "primus": 1,
-    "secundus": 2,
-    "tertius": 3,
-    "quartus": 4,
-    "quintus": 5,
-    "sextus": 6,
-    "septimus": 7,
-    "octavus": 8,
-    "nonus": 9,
-    "decimus": 10,
-    # fallback OCR variants
-    "i": 1,
-    "ii": 2,
-    "iii": 3,
-    "iv": 4,
-    "v": 5,
-    "vi": 6,
-    "vii": 7,
-    "viii": 8,
-    "ix": 9,
-    "x": 10,
-    "1": 1,
-    "2": 2,
-    "3": 3,
-    "4": 4,
-    "5": 5,
-    "6": 6,
-    "7": 7,
-    "8": 8,
-    "9": 9,
-    "10": 10,
+_ORDINAL_WORDS = {
+    "primum": 1,
+    "primi": 1,
+    "primo": 1,
+    "primit": 1,
+    "primiti": 1,
+    "secundum": 2,
+    "secundi": 2,
+    "tertium": 3,
+    "tertii": 3,
+    "quartum": 4,
+    "quarti": 4,
+    "quintum": 5,
+    "quinti": 5,
+    "sextum": 6,
+    "sexti": 6,
+    "septimum": 7,
+    "septimi": 7,
+    "octavum": 8,
+    "octavi": 8,
+    "nonum": 9,
+    "noni": 9,
+    "decimum": 10,
+    "decimi": 10,
 }
 
+_BOOK_PATTERNS: List[Tuple[int, re.Pattern[str]]] = [
+    (1, re.compile(r"LIBER\s*P\s*RIMV?S")),
+    (2, re.compile(r"LIBER\s*S\s*E\s*C\s*V?N?D?V?S")),
+    (3, re.compile(r"LIBER\s*T\s*E\s*R\s*T\s*I\s*V?S")),
+    (4, re.compile(r"LIBER\s*Q\s*V?\s*A\s*R\s*T\s*V?S")),
+    (5, re.compile(r"LIBER\s*Q\s*V?\s*I\s*N\s*T\s*V?S")),
+]
 
-def _roman_or_ordinal_to_int(token: str) -> int:
-    t = token.strip().lower().rstrip(".")
-    if t in _ORDINALS:
-        return _ORDINALS[t]
-    raise ValueError(f"Unsupported Liber token: {token!r}")
+# В новом OCR заголовок главы почти всегда выглядит как:
+#   De...
+#   Q ui...
+#   Decodem...
+#   ... ca.xv.
+# или
+#   DequalirateTudicum. Capitulum primum.
+#
+# Регулярка здесь намеренно довольно строгая по стартовым словам:
+# это снижает ложные срабатывания в теле текста.
+_CHAPTER_HEAD_RE = re.compile(
+    r"(?P<title>"
+    r"(?:De|Decodem|Q\s*ui|Tudex|Ne\s+quis|Mulieres|Dos|Inter|Nuptie|Cum)"
+    r"[^\.]{1,80}?"
+    r")"
+    r"\s*[,.:;—\-| ]+\s*"
+    r"(?:"
+    r"Capitulum\s+(?P<cap_word>[A-Za-z]+)"
+    r"|"
+    r"(?:ca|c[ao@]|@)\.?\s*(?P<cap_tok>[A-Za-z0-9£íivxljfg]{1,10})"
+    r")"
+)
 
 
-def _clean_block(text: str) -> str:
-    lines = []
+def _fold_ascii(text: str) -> str:
+    return "".join(
+        ch for ch in unicodedata.normalize("NFKD", text)
+        if not unicodedata.combining(ch)
+    )
+
+
+def _safe_strip(text: str) -> str:
+    return " ".join(text.split()).strip()
+
+
+def _is_noise_line(line: str) -> bool:
+    s = line.strip()
+    if not s:
+        return True
+
+    low = _fold_ascii(s).lower()
+
+    if low.startswith((
+        "erstellungsdatum",
+        "titel:",
+        "ort:",
+        "verlag:",
+        "jahr:",
+        "doi /",
+        "nutzungsbedingungen",
+        "http",
+    )):
+        return True
+
+    if "digi.ub.uni" in low:
+        return True
+
+    if "universitats-bibliothek" in low or "universitatsbibliothek" in low:
+        return True
+
+    if "heidelberg" in low and ("universit" in low or "digi." in low or "http" in low):
+        return True
+
+    if "baden-wurtt" in low or "badenwurtt" in low or "wilrtiemberg" in low:
+        return True
+
+    alpha = sum(ch.isalpha() for ch in s)
+    if alpha < 2 and len(s) < 8:
+        return True
+
+    return False
+
+
+def _prepare_text(text: str) -> str:
+    kept: List[str] = []
     for line in text.splitlines():
-        s = line.strip()
-        if not s:
+        if _is_noise_line(line):
             continue
-        if _PAGE_RE.match(s):
-            continue
-        if _RUNNING_RE.match(s):
-            continue
-        if _FOOTNOTE_RE.match(s):
-            continue
-        if _PAREN_REF_RE.match(s):
-            continue
-        lines.append(s)
+        kept.append(line.strip())
 
-    out = " ".join(lines)
-    out = _INLINE_FOOTNOTE_NUM_RE.sub("", out)
-    out = _HYPHEN_SPLIT_RE.sub(r"\1\2", out)
-    out = clean_text(out)
-    return out
+    joined = " ".join(kept)
+    joined = re.sub(r"(\w)-\s+(\w)", r"\1\2", joined)
+    joined = re.sub(r"\s+", " ", joined).strip()
+    return joined
 
 
-def _segment_prologus(text: str, source_name: str) -> List[Tuple[str, str]]:
-    m = _PROLOGUS_RE.search(text)
-    if not m:
-        return []
+def _roman_to_int(token: str) -> Optional[int]:
+    t = _fold_ascii(token).lower()
+    t = re.sub(r"[^a-z0-9£]", "", t)
+    if not t:
+        return None
 
-    # Пролог заканчивается перед первым Liber
-    lm = _LIBER_RE.search(text, m.end())
-    end = lm.start() if lm else len(text)
-    block = text[m.end():end].strip()
-    cleaned = _clean_block(block)
-    if not cleaned:
-        return []
-    return [(f"{source_name}_Prologus", cleaned)]
+    if t in _ORDINAL_WORDS:
+        return _ORDINAL_WORDS[t]
 
+    # OCR-normalизация для numeralia
+    t = (
+        t.replace("j", "i")
+         .replace("£", "i")
+         .replace("f", "i")
+         .replace("t", "i")
+         .replace("r", "i")
+         .replace("g", "ii")
+    )
+    t = "".join(ch for ch in t if ch in "ivxlcdm")
+    if not t:
+        return None
+
+    vals = {"i": 1, "v": 5, "x": 10, "l": 50, "c": 100, "d": 500, "m": 1000}
+    total = 0
+    prev = 0
+    for ch in reversed(t):
+        val = vals[ch]
+        if val < prev:
+            total -= val
+        else:
+            total += val
+            prev = val
+
+    if 0 < total < 200:
+        return total
+    return None
+
+
+def _normalize_title(title: str) -> str:
+    t = _safe_strip(title)
+    t = re.sub(r"^[\"'`\-–—:;,.| ]+", "", t)
+    t = re.sub(r"[\"'`\-–—:;,.| ]+$", "", t)
+    t = t.replace("Q ui", "Qui")
+    return t
+
+
+def _find_books(text: str) -> List[Tuple[int, int, int]]:
+    found: List[Tuple[int, int, int]] = []
+    for book_no, pat in _BOOK_PATTERNS:
+        for m in pat.finditer(text):
+            found.append((m.start(), m.end(), book_no))
+
+    found.sort()
+    dedup: List[Tuple[int, int, int]] = []
+    last_pos = -10**9
+    for start, end, book_no in found:
+        if start - last_pos < 40:
+            continue
+        dedup.append((start, end, book_no))
+        last_pos = start
+    return dedup
+
+
+def _find_chapter_starts(block: str) -> List[Tuple[int, int, str]]:
+    starts: List[Tuple[int, int, str]] = []
+
+    expected_next = 1
+    for m in _CHAPTER_HEAD_RE.finditer(block):
+        title = _normalize_title(m.group("title") or "")
+        if not title:
+            continue
+
+        token = (m.group("cap_word") or m.group("cap_tok") or "").strip()
+        parsed = _roman_to_int(token)
+
+        # Для стабильности id используем реальный номер, если он разумный
+        # и не уходит слишком далеко от последовательности.
+        # Иначе — fallback на порядок глав в книге.
+        if parsed is None or parsed < expected_next or parsed > expected_next + 5:
+            cap_no = expected_next
+        else:
+            cap_no = parsed
+
+        starts.append((m.start(), cap_no, title))
+        expected_next = cap_no + 1
+
+    # схлопываем дубли по старту / близким позициям
+    collapsed: List[Tuple[int, int, str]] = []
+    last_pos = -10**9
+    last_no = None
+    for pos, cap_no, title in starts:
+        if pos - last_pos < 25 and last_no == cap_no:
+            continue
+        collapsed.append((pos, cap_no, title))
+        last_pos = pos
+        last_no = cap_no
+
+    return collapsed
+
+
+def _clean_segment_text(text: str) -> str:
+    t = text
+    t = re.sub(r"(\w)-\s+(\w)", r"\1\2", t)
+    t = re.sub(r"\bFol\.?\s*[A-Za-z0-9'«»\.\-]+\b", " ", t)
+    t = re.sub(r"\bFo[blf]?\.?\s*[A-Za-z0-9'«»\.\-]+\b", " ", t)
+    t = re.sub(r"\bLI+\s*FO\.?\s*[A-Za-z0-9]+\b", " ", t)
+    t = re.sub(r"\bCapitula\s+[A-Z][^.]{0,120}", " ", t)
+    t = re.sub(r"\bEXCEPCIONVM\s+LEGVM[^.]{0,80}", " ", t)
+    t = re.sub(r"\s+", " ", t)
+    return clean_text(t)
+
+
+# ---------------------------------------------------------
+# Main segmentation
+# ---------------------------------------------------------
 
 def segment_exceptiones_petri(text: str, source_name: str) -> List[Tuple[str, str]]:
     """
-    Чистая структурная сегментация Exceptiones Petri:
-    один сегмент = одна глава внутри конкретной книги.
+    New OCR-aware segmentation for Exceptiones Petri.
+
+    Structural unit:
+      one segment = one chapter inside a detected Liber.
 
     IDs:
-      ExceptPetri_Prologus
       ExceptPetri_L1_C1
       ExceptPetri_L1_C2
-      ExceptPetri_L2_C14
+      ExceptPetri_L4_C1
     """
-    segments: List[Tuple[str, str]] = []
+    prepared = _prepare_text(text)
+    books = _find_books(prepared)
+    if not books:
+        return []
 
-    # 1) Пролог отдельно
-    segments.extend(_segment_prologus(text, source_name))
+    raw_segments: List[Tuple[str, str]] = []
 
-    # 2) Книги
-    liber_matches = list(_LIBER_RE.finditer(text))
-    if not liber_matches:
-        return validate_segments(segments, source_name)
-
-    for i, lm in enumerate(liber_matches):
-        try:
-            liber_no = _roman_or_ordinal_to_int(lm.group(1))
-        except ValueError:
+    for i, (book_start, book_head_end, book_no) in enumerate(books):
+        book_end = books[i + 1][0] if i + 1 < len(books) else len(prepared)
+        block = prepared[book_head_end:book_end].strip()
+        if not block:
             continue
 
-        start = lm.end()
-        end = liber_matches[i + 1].start() if i + 1 < len(liber_matches) else len(text)
-        liber_block = text[start:end].strip()
-        if not liber_block:
+        chapter_starts = _find_chapter_starts(block)
+        if not chapter_starts:
             continue
 
-        cap_matches = list(_CAP_RE.finditer(liber_block))
-        if not cap_matches:
-            continue
-
-        for j, cm in enumerate(cap_matches):
-            cap_no = int(cm.group(1))
-            cap_head = (cm.group(2) or "").strip()
-
-            c_start = cm.end()
-            c_end = cap_matches[j + 1].start() if j + 1 < len(cap_matches) else len(liber_block)
-            cap_body = liber_block[c_start:c_end].strip()
-
-            cleaned_body = _clean_block(cap_body)
-            if cap_head:
-                cleaned = clean_text(f"{cap_head} {cleaned_body}")
-            else:
-                cleaned = cleaned_body
-
+        for j, (start_pos, cap_no, title) in enumerate(chapter_starts):
+            end_pos = chapter_starts[j + 1][0] if j + 1 < len(chapter_starts) else len(block)
+            chunk = block[start_pos:end_pos].strip()
+            cleaned = _clean_segment_text(chunk)
             if not cleaned:
                 continue
 
-            seg_id = f"{source_name}_L{liber_no}_C{cap_no}"
-            segments.append((seg_id, cleaned))
+            seg_id = f"{source_name}_L{book_no}_C{cap_no}"
+            raw_segments.append((seg_id, cleaned))
 
+    # Схлопываем дубликаты id: оставляем самый полный текст.
+    best: Dict[str, str] = {}
+    for seg_id, seg_text in raw_segments:
+        cur = best.get(seg_id)
+        if cur is None or len(seg_text) > len(cur):
+            best[seg_id] = seg_text
+
+    segments = sorted(best.items(), key=lambda x: x[0])
     return validate_segments(segments, source_name)
 
 
 def segment_exceptiones_petri_unified(source_file, source_name):
     """
-    Унифицированная сегментация Exceptiones Legum Romanorum Petri.
-    Сегментер сам читает файл и возвращает list[(id, text)].
+    Unified entrypoint for the new Petri OCR.
+    Returns list[(id, text)].
     """
     text = read_source_file(source_file)
-    raw_segments = segment_exceptiones_petri(text, source_name)
-    return validate_segments(raw_segments, source_name)
+    return segment_exceptiones_petri(text, source_name)
 
 
 if __name__ == "__main__":
     candidates = [
+        Path("data/Exeptionis_Legum_Romanorum_Petri_v3.txt"),
+        Path("/mnt/data/Exeptionis_Legum_Romanorum_Petri_v3.txt"),
         Path("data/Exeptionis_Legum_Romanorum_Petri_v2.txt"),
     ]
 
@@ -209,15 +328,19 @@ if __name__ == "__main__":
     segs = segment_exceptiones_petri(text, "ExceptPetri")
 
     print(f"ExceptPetri: {len(segs)} segments")
-    print("Expected structural unit: prologus + one segment per chapter within each Liber")
+    print("Expected structural unit: one segment per detected chapter within each Liber")
     print()
 
     if segs:
-        print("First 8 segments:")
-        for sid, txt in segs[:8]:
-            print(f"  {sid}: {txt[:160]}")
+        lengths = [len(t.split()) for _, t in segs]
+        print(f"Words: min={min(lengths)}, median={sorted(lengths)[len(lengths)//2]}, max={max(lengths)}")
         print()
 
-        print("Last 8 segments:")
-        for sid, txt in segs[-8:]:
+        print("First 10 segments:")
+        for sid, txt in segs[:10]:
+            print(f"  {sid}: {txt[:160]}")
+
+        print()
+        print("Last 10 segments:")
+        for sid, txt in segs[-10:]:
             print(f"  {sid}: {txt[:160]}")
