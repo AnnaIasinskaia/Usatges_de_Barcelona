@@ -9,6 +9,11 @@ config_unified.py
 - сегментеры самодостаточные, поэтому конфиг НЕ управляет сегментацией
 - стороны графа и направления сопоставления задаются через experiment
 - smoke test оформлен как обычный experiment с id="test"
+
+На текущем этапе конфиг разделён на несколько типов настроек:
+- MODEL_DEFAULTS: параметры вычисления сходства и BorrowScore
+- LOGGING_DEFAULTS: параметры человекочитаемого логгирования пайплайна
+- viz/output/chunking/aggregation: настройки отдельных стадий эксперимента
 """
 
 from __future__ import annotations
@@ -159,6 +164,9 @@ GROUPS = {
 
 # ---------------------- Общие настройки модели ----------------------
 
+# Здесь лежат именно алгоритмические параметры.
+# Они должны влиять на candidate selection / scoring / alignment,
+# а не на формат вывода или логирование.
 MODEL_DEFAULTS = {
     "use_collatinus": False,
     "min_lemma_length": 3,
@@ -171,12 +179,37 @@ MODEL_DEFAULTS = {
     "gamma": 0.30,
     "final_threshold": 0.10,
     "soft_cosine_max_terms": 500,
+
+    # Эвристика включения soft cosine:
+    # если cos_sim + beta * tess > final_threshold * soft_cosine_gate_factor,
+    # тогда считается soft cosine, иначе он пропускается как дорогой этап.
+    "soft_cosine_gate_factor": 0.50,
+
     "sw_match": 2,
     "sw_mismatch": -1,
     "sw_gap": -1,
     "sw_lev_bonus_threshold": 2,
     "sw_max_seq_len": 300,
     "sw_min_score": 0.0,
+}
+
+
+# ---------------------- Общие настройки логгирования ----------------------
+
+# Эти параметры не меняют результат вычислений.
+# Они управляют только тем, насколько детально pipeline пишет ход исполнения.
+LOGGING_DEFAULTS = {
+    # Частота progress-логов для scoring loop.
+    # Для коротких прогонов можно ставить меньше, для длинных — больше.
+    "scoring_progress_every": 1000,
+
+    # Заготовка под следующие итерации:
+    # unified pipeline может начать читать это значение вместо хардкода,
+    # если понадобится более детальный прогресс на этапе лемматизации.
+    "lemmatize_progress_every": None,
+
+    # Заготовка под возможный progress на этапе генерации кандидатов.
+    "candidate_progress_every": None,
 }
 
 
@@ -200,6 +233,7 @@ EXPERIMENTS = {
             "top_k_per_left": 3,
         },
         "model": dict(MODEL_DEFAULTS),
+        "logging": dict(LOGGING_DEFAULTS, scoring_progress_every=100),
         "alignment": {
             "enabled": False,
         },
@@ -244,6 +278,7 @@ EXPERIMENTS = {
             "top_k_per_left": None,
         },
         "model": dict(MODEL_DEFAULTS),
+        "logging": dict(LOGGING_DEFAULTS, scoring_progress_every=250),
         "alignment": {
             "enabled": True,
         },
@@ -296,7 +331,11 @@ EXPERIMENTS = {
             "threshold": 0.08,
             "top_k_per_left": 5,
         },
-        "model": dict(MODEL_DEFAULTS, final_threshold=0.12),
+        "model": dict(
+            MODEL_DEFAULTS,
+            final_threshold=0.12,
+        ),
+        "logging": dict(LOGGING_DEFAULTS, scoring_progress_every=250),
         "alignment": {
             "enabled": True,
         },

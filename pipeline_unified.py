@@ -26,12 +26,6 @@ try:
 except Exception:  # pragma: no cover
     nx = None
 
-try:
-    import matplotlib.pyplot as plt
-    from matplotlib.patches import Patch
-except Exception:  # pragma: no cover
-    plt = None
-
 from preprocessing import LatinLemmatizer, preprocess_segment
 from alignment import smith_waterman
 from features import (
@@ -40,6 +34,7 @@ from features import (
     soft_cosine_similarity,
     tesserae_score,
 )
+from graph_rendering import generic_numeric_sort_key, render_bipartite_graph
 
 
 @dataclass(frozen=True)
@@ -77,10 +72,8 @@ def resolve_group_tokens(items: Sequence[str], groups: Dict[str, List[str]]) -> 
     return out
 
 
-
 def segment_corpus(corpus_id: str, corpus_spec: Dict[str, Any], logger: ProgressLogger) -> List[Tuple[str, str]]:
     source_file = Path(corpus_spec["path"])
-    logger.log(f"segment_corpus: {corpus_id} -> {source_file}")
     if not source_file.exists():
         raise FileNotFoundError(f"Corpus file not found for {corpus_id}: {source_file}")
 
@@ -105,7 +98,6 @@ def segment_corpus(corpus_id: str, corpus_spec: Dict[str, Any], logger: Progress
                 )
             segments.append((seg_id, seg_text))
 
-    logger.log(f"segment_corpus: {corpus_id} done, segments={len(segments)}")
     return segments
 
 
@@ -115,7 +107,6 @@ def _word_tokens(text: str) -> List[str]:
 
 def chunk_segments(base: Sequence[Segment], chunking_cfg: Dict[str, Any], logger: ProgressLogger, side: str) -> List[Segment]:
     if not chunking_cfg or not bool(chunking_cfg.get("enabled")):
-        logger.log(f"chunking[{side}]: disabled, keep {len(base)} segments")
         return list(base)
 
     mode = chunking_cfg.get("mode", "sliding_window_words")
@@ -128,13 +119,11 @@ def chunk_segments(base: Sequence[Segment], chunking_cfg: Dict[str, Any], logger
     per = dict(chunking_cfg.get("per_corpus") or {})
 
     out: List[Segment] = []
-    produced = 0
 
     for seg in base:
         ov = dict(per.get(seg.corpus) or {})
         if ov.get("enabled", True) is False:
             out.append(seg)
-            produced += 1
             continue
 
         window_words = int(ov.get("window_words", w_default))
@@ -144,7 +133,6 @@ def chunk_segments(base: Sequence[Segment], chunking_cfg: Dict[str, Any], logger
         words = _word_tokens(seg.text)
         if len(words) < min_words or len(words) <= window_words:
             out.append(seg)
-            produced += 1
             continue
 
         step = max(1, window_words - max(0, overlap_words))
@@ -163,12 +151,10 @@ def chunk_segments(base: Sequence[Segment], chunking_cfg: Dict[str, Any], logger
                 side=seg.side,
                 parent_id=seg.parent_id,
             ))
-            produced += 1
             idx += 1
             if end == len(words):
                 break
 
-    logger.log(f"chunking[{side}]: input={len(base)} output={produced}")
     return out
 
 
@@ -183,14 +169,6 @@ def extract_doc_no(seg: Segment) -> Optional[int]:
     return None
 
 
-def generic_numeric_sort_key(seg_id: str) -> Tuple[int, str]:
-    nums = _NUM_RE.findall(str(seg_id))
-    if nums:
-        return (int(nums[0]), str(seg_id))
-    return (10**9, str(seg_id))
-
-
-
 
 def lemmatize_segments(
     segments: Sequence[Segment],
@@ -199,17 +177,13 @@ def lemmatize_segments(
     logger: ProgressLogger,
     label: str,
 ) -> Dict[str, List[str]]:
-    total = len(segments)
-    logger.log(f"lemmatize[{label}]: start, segments={total}")
     lemmas_by_id: Dict[str, List[str]] = {}
-    for i, seg in enumerate(segments, 1):
+    for seg in segments:
         try:
             lem = preprocess_segment(seg.text, lemmatizer, min_length=min_lemma_length)
         except Exception:
             lem = []
         lemmas_by_id[seg.id] = lem
-        if i % 100 == 0 or i == total:
-            logger.log(f"lemmatize[{label}]: {i}/{total}")
     return lemmas_by_id
 
 
@@ -222,10 +196,6 @@ def cosine_candidates_dense(
     top_k_per_left: Optional[int],
     logger: ProgressLogger,
 ) -> List[Tuple[str, str, float]]:
-    logger.log(
-        f"candidates: cosine start, left={tfidf_left.shape}, right={tfidf_right.shape}, "
-        f"threshold={threshold}, top_k={top_k_per_left}"
-    )
     sim = tfidf_left @ tfidf_right.T
 
     pairs: List[Tuple[str, str, float]] = []
@@ -233,7 +203,6 @@ def cosine_candidates_dense(
         rows, cols = np.where(sim >= threshold)
         for i, j in zip(rows, cols):
             pairs.append((left_ids[int(i)], right_ids[int(j)], float(sim[int(i), int(j)])))
-        logger.log(f"candidates: found={len(pairs)}")
         return pairs
 
     k = int(top_k_per_left)
@@ -252,10 +221,6 @@ def cosine_candidates_dense(
             if v >= threshold:
                 pairs.append((left_ids[i], right_ids[int(j)], v))
 
-        if (i + 1) % 100 == 0 or i + 1 == sim.shape[0]:
-            logger.log(f"candidates: processed left rows {i + 1}/{sim.shape[0]}, pairs={len(pairs)}")
-
-    logger.log(f"candidates: found={len(pairs)}")
     return pairs
 
 
@@ -370,160 +335,6 @@ def aggregate_rows(
     rows.sort(key=lambda r: (-float(r["weight"]), str(r["left_node"]), str(r["right_node"])))
     return rows
 
-def render_bipartite_graph(
-    graph_rows: Sequence[Dict[str, Any]],
-    left_nodes: Dict[str, Dict[str, Any]],
-    right_nodes: Dict[str, Dict[str, Any]],
-    out_png: Path,
-    straight_edges: bool = True,
-    label_left: bool = True,
-    label_right: bool = True,
-    top_n_edges: Optional[int] = None,
-) -> None:
-    if plt is None or nx is None:
-        return
-
-    rows = list(graph_rows)
-    if top_n_edges is not None:
-        try:
-            k = int(top_n_edges)
-        except Exception:
-            k = None
-        if k is not None and k > 0 and len(rows) > k:
-            rows = sorted(rows, key=lambda r: -float(r.get("weight", 0.0)))[:k]
-
-    G = nx.DiGraph()
-    for r in rows:
-        u = str(r["left_node"])
-        v = str(r["right_node"])
-        w = float(r.get("weight", 0.0))
-        if u not in left_nodes or v not in right_nodes:
-            continue
-        G.add_node(u, **left_nodes[u])
-        G.add_node(v, **right_nodes[v])
-        G.add_edge(u, v, weight=w)
-
-    if G.number_of_edges() == 0:
-        return
-
-    left_list = [n for n in G.nodes() if G.nodes[n].get("side") == "left"]
-    right_list = [n for n in G.nodes() if G.nodes[n].get("side") == "right"]
-
-    left_list = sorted(left_list, key=lambda n: (str(G.nodes[n].get("group", "")), str(n)))
-    right_list = sorted(
-        right_list,
-        key=lambda n: G.nodes[n].get("sort_key", (10**9, 10**9, str(n))),
-    )
-
-    pos: Dict[str, Tuple[float, float]] = {}
-    y = 0.0
-    last_group = None
-    for n in left_list:
-        g = G.nodes[n].get("group", "")
-        if last_group is not None and g != last_group:
-            y += 0.8
-        pos[n] = (0.0, -y)
-        y += 1.0
-        last_group = g
-
-    total_left_h = max(1.0, y)
-    for i, n in enumerate(right_list):
-        pos[n] = (4.0, -(i * (total_left_h / max(1, len(right_list)))))
-
-    fig_h = max(10, 0.35 * max(len(left_list), len(right_list)) + 6)
-    plt.figure(figsize=(20, fig_h))
-    ax = plt.gca()
-    ax.set_facecolor("#f7f7f7")
-
-    nx.draw_networkx_nodes(
-        G, pos,
-        nodelist=left_list,
-        node_size=300,
-        node_color=[G.nodes[n].get("color", "#999999") for n in left_list],
-        linewidths=0.8,
-        edgecolors="white",
-    )
-    nx.draw_networkx_nodes(
-        G, pos,
-        nodelist=right_list,
-        node_size=520,
-        node_color=[G.nodes[n].get("color", "#999999") for n in right_list],
-        linewidths=0.8,
-        edgecolors="white",
-    )
-
-    edgelist = list(G.edges())
-    weights = [
-        max(0.6, min(4.0, 0.6 + 3.0 * float(G.edges[e].get("weight", 0.0))))
-        for e in edgelist
-    ]
-    edge_colors = [G.nodes[u].get("color", "#666666") for (u, v) in edgelist]
-
-    edge_kwargs = {}
-    if not straight_edges:
-        edge_kwargs["connectionstyle"] = "arc3,rad=0.03"
-
-    nx.draw_networkx_edges(
-        G, pos,
-        edgelist=edgelist,
-        width=weights,
-        edge_color=edge_colors,
-        alpha=0.45,
-        arrows=True,
-        arrowstyle="-|>",
-        arrowsize=12,
-        **edge_kwargs,
-    )
-
-    if label_left:
-        for n in left_list:
-            x, y = pos[n]
-            ax.text(
-                x - 0.06, y,
-                G.nodes[n].get("label", str(n)),
-                fontsize=13,
-                ha="right",
-                va="center",
-            )
-
-    if label_right:
-        for n in right_list:
-            x, y = pos[n]
-            ax.text(
-                x + 0.06, y,
-                G.nodes[n].get("label", str(n)),
-                fontsize=12,
-                ha="left",
-                va="center",
-            )
-
-    legend = []
-    seen = set()
-    for n in left_list:
-        lbl = G.nodes[n].get("label", str(n))
-        col = G.nodes[n].get("color", "#999999")
-        key = (lbl, col)
-        if key in seen:
-            continue
-        legend.append(Patch(facecolor=col, label=lbl))
-        seen.add(key)
-
-    if legend:
-        plt.legend(
-            handles=legend,
-            loc="upper center",
-            bbox_to_anchor=(0.5, 0.98),
-            ncol=4,
-            fontsize=12,
-            frameon=True,
-            framealpha=0.95,
-        )
-
-    plt.axis("off")
-    out_png.parent.mkdir(parents=True, exist_ok=True)
-    plt.tight_layout(rect=(0.02, 0.03, 0.98, 0.95))
-    plt.savefig(out_png, dpi=300, bbox_inches="tight")
-    plt.close()
 
 
 def build_node_metadata(
@@ -576,7 +387,6 @@ def write_csv(rows: Sequence[Dict[str, Any]], path: Path) -> None:
             w.writerow(r)
 
 
-
 def _make_gexf_safe_attrs(attrs: Dict[str, Any]) -> Dict[str, Any]:
     """
     Приводит атрибуты узла/ребра к типам, которые умеет писать networkx.write_gexf.
@@ -596,6 +406,7 @@ def _make_gexf_safe_attrs(attrs: Dict[str, Any]) -> Dict[str, Any]:
             safe[key] = repr(value)
     return safe
 
+
 def run_experiment(
     config_module: Any,
     experiment_id: str,
@@ -604,7 +415,6 @@ def run_experiment(
 ) -> Dict[str, Any]:
     logger = ProgressLogger(enabled=verbose)
 
-    logger.log(f"load config: start experiment={experiment_id}")
     corpora: Dict[str, Dict[str, Any]] = dict(getattr(config_module, "CORPORA"))
     groups: Dict[str, List[str]] = dict(getattr(config_module, "GROUPS", {}))
     experiments: Dict[str, Dict[str, Any]] = dict(getattr(config_module, "EXPERIMENTS"))
@@ -615,12 +425,11 @@ def run_experiment(
     exp = experiments[experiment_id]
     out_dir = Path(exp["output"]["dir"])
     out_dir.mkdir(parents=True, exist_ok=True)
-    logger.log(f"output dir: {out_dir}")
+
+    logger.log("Step 1/7: Loading config and segmenting corpora...")
 
     left_corpora = resolve_group_tokens(exp["graph_sides"]["left"], groups)
     right_corpora = resolve_group_tokens(exp["graph_sides"]["right"], groups)
-    logger.log(f"left corpora: {left_corpora}")
-    logger.log(f"right corpora: {right_corpora}")
 
     mappings = exp.get("mappings") or [{"from": left_corpora, "to": right_corpora}]
     resolved_mappings = []
@@ -628,16 +437,16 @@ def run_experiment(
         frm = resolve_group_tokens(m.get("from", []), groups)
         to = resolve_group_tokens(m.get("to", []), groups)
         resolved_mappings.append((frm, to))
-    logger.log(f"mappings: {resolved_mappings}")
 
     base_segments: List[Segment] = []
     used_corpora = sorted(set(left_corpora + right_corpora))
-    logger.log(f"segment all corpora: count={len(used_corpora)}")
+    segmentation_counts: Dict[str, int] = {}
 
     for cid in used_corpora:
         if cid not in corpora:
             raise KeyError(f"Corpus {cid} is not defined in CORPORA")
         segs = segment_corpus(cid, corpora[cid], logger)
+        segmentation_counts[cid] = len(segs)
         for seg_id, seg_text in segs:
             base_segments.append(Segment(
                 id=seg_id,
@@ -646,7 +455,6 @@ def run_experiment(
                 side="__unassigned__",
                 parent_id=seg_id,
             ))
-    logger.log(f"base segments total: {len(base_segments)}")
 
     base_by_corpus: Dict[str, List[Segment]] = {cid: [] for cid in used_corpora}
     for seg in base_segments:
@@ -662,33 +470,43 @@ def run_experiment(
         for seg in base_by_corpus[cid]:
             right_base.append(Segment(seg.id, seg.text, seg.corpus, "right", seg.parent_id))
 
-    logger.log(f"left base={len(left_base)}, right base={len(right_base)}")
+    seg_summary = ", ".join(f"{cid}={segmentation_counts[cid]}" for cid in used_corpora)
+    logger.log(f"  Segmentation done: {seg_summary}")
+    logger.log(f"  Left base={len(left_base)}, right base={len(right_base)}, total={len(base_segments)}")
 
+    logger.log("Step 2/7: Chunking segments...")
     chunk_cfg = dict(exp.get("chunking") or {})
     left_leaf = chunk_segments(left_base, chunk_cfg, logger, "left")
     right_leaf = chunk_segments(right_base, chunk_cfg, logger, "right")
-    logger.log(f"left leaf={len(left_leaf)}, right leaf={len(right_leaf)}")
+    logger.log(
+        f"  Chunking done: left {len(left_base)} -> {len(left_leaf)}, "
+        f"right {len(right_base)} -> {len(right_leaf)}"
+    )
 
+    logger.log("Step 3/7: Preprocessing and lemmatization...")
     model = dict(exp.get("model") or {})
-    logger.log("lemmatizer: init")
     lemmatizer = LatinLemmatizer(use_collatinus=bool(model.get("use_collatinus", False)))
     min_lemma_length = int(model.get("min_lemma_length", 3))
 
     left_lemmas = lemmatize_segments(left_leaf, lemmatizer, min_lemma_length, logger, "left")
     right_lemmas = lemmatize_segments(right_leaf, lemmatizer, min_lemma_length, logger, "right")
+    logger.log(f"  Lemmatization done: left={len(left_lemmas)}, right={len(right_lemmas)}")
 
     left_ids = [s.id for s in left_leaf]
     right_ids = [s.id for s in right_leaf]
     corpus_lemmas = [left_lemmas[i] for i in left_ids] + [right_lemmas[i] for i in right_ids]
 
-    logger.log(f"tfidf: start, docs={len(corpus_lemmas)}")
+    logger.log("Step 4/7: Building TF-IDF features and candidate pairs...")
     tfidf, vocab, term2idx = build_tfidf_matrix(
         corpus_lemmas,
         ngram_range=tuple(model.get("ngram_range", (1, 3))),
         max_df=float(model.get("max_df", 0.5)),
         min_df=int(model.get("min_df", 2)),
     )
-    logger.log(f"tfidf: done, matrix_shape={getattr(tfidf, 'shape', None)}, vocab={len(vocab)}")
+    logger.log(
+        f"  TF-IDF done: docs={len(corpus_lemmas)}, "
+        f"vocab={len(vocab)}, matrix={getattr(tfidf, 'shape', None)}"
+    )
 
     n_left = len(left_ids)
     tfidf_left = tfidf[:n_left]
@@ -707,11 +525,10 @@ def run_experiment(
         top_k_per_left=top_k,
         logger=logger,
     )
+    logger.log(f"  Candidates found: {len(candidates)} (threshold={threshold}, top_k={top_k})")
 
-    logger.log("idf: compute")
     idf = compute_idf(corpus_lemmas)
     align_enabled = bool((exp.get("alignment") or {}).get("enabled", True))
-    logger.log(f"alignment enabled={align_enabled}")
 
     left_seg_by_id = {s.id: s for s in left_leaf}
     right_seg_by_id = {s.id: s for s in right_leaf}
@@ -721,7 +538,14 @@ def run_experiment(
     right_level = str(agg.get("right_node_level", "parent"))
 
     detail_rows: List[Dict[str, Any]] = []
-    logger.log(f"score candidates: total={len(candidates)}")
+    skipped_by_mapping = 0
+    skipped_empty_lemmas = 0
+    rejected_by_final_threshold = 0
+    rejected_by_sw_min_score = 0
+    kept_after_scoring = 0
+
+    logger.log("Step 5/7: Computing BorrowScore and filtering candidates...")
+    logger.log(f"  Scoring start: total_candidates={len(candidates)}, alignment={align_enabled}")
 
     for idx, (left_id, right_id, cos_sim) in enumerate(candidates, 1):
         ls = left_seg_by_id.get(left_id)
@@ -735,19 +559,23 @@ def run_experiment(
                 allowed = True
                 break
         if not allowed:
+            skipped_by_mapping += 1
             continue
 
         llem = left_lemmas.get(left_id, [])
         rlem = right_lemmas.get(right_id, [])
         if not llem or not rlem:
+            skipped_empty_lemmas += 1
             continue
 
         score, tess, soft = compute_borrow_score(float(cos_sim), llem, rlem, idf, model)
         if score < float(model.get("final_threshold", 0.10)):
+            rejected_by_final_threshold += 1
             continue
 
         al_a, al_b, sw = maybe_align(llem, rlem, model, enabled=align_enabled)
         if sw < float(model.get("sw_min_score", 0.0)):
+            rejected_by_sw_min_score += 1
             continue
 
         detail_rows.append({
@@ -770,9 +598,15 @@ def run_experiment(
             "left_text_snippet": ls.text[:220].replace("\n", " ").strip(),
             "right_text_snippet": rs.text[:220].replace("\n", " ").strip(),
         })
+        kept_after_scoring += 1
 
         if idx % max(1, progress_every) == 0 or idx == len(candidates):
-            logger.log(f"score candidates: {idx}/{len(candidates)}, kept={len(detail_rows)}")
+            logger.log(
+                f"  Scoring progress: {idx}/{len(candidates)}, "
+                f"kept={kept_after_scoring}, "
+                f"reject_final={rejected_by_final_threshold}, "
+                f"reject_sw={rejected_by_sw_min_score}"
+            )
 
     detail_rows.sort(
         key=lambda r: (
@@ -783,8 +617,17 @@ def run_experiment(
             str(r["right_leaf_id"]),
         )
     )
-    logger.log(f"detail rows: {len(detail_rows)}")
+    logger.log(
+        f"  Scoring done: kept={kept_after_scoring}, "
+        f"skipped_mapping={skipped_by_mapping}, "
+        f"skipped_empty={skipped_empty_lemmas}"
+    )
+    logger.log(
+        f"  Filtering stats: rejected_final={rejected_by_final_threshold}, "
+        f"rejected_sw={rejected_by_sw_min_score}"
+    )
 
+    logger.log("Step 6/7: Aggregating evidence and preparing graph rows...")
     graph_rows = aggregate_rows(
         detail_rows,
         left_level=left_level,
@@ -792,24 +635,24 @@ def run_experiment(
         weight_mode=str(agg.get("weight_mode", "max")),
         min_hits=int(agg.get("min_hits", 1)),
     )
-    logger.log(f"graph rows: {len(graph_rows)}")
+    logger.log(f"  Aggregation done: detail_rows={len(detail_rows)}, graph_rows={len(graph_rows)}")
 
+    logger.log("Step 7/7: Exporting graph and outputs...")
     output_cfg = dict(exp.get("output") or {})
     if bool(output_cfg.get("write_detail_csv")):
         path = out_dir / "detail_pairs.csv"
-        logger.log(f"write csv: {path}")
         write_csv(detail_rows, path)
+        logger.log(f"  Wrote CSV: {path.name}")
     if bool(output_cfg.get("write_graph_csv")):
         path = out_dir / "graph_rows.csv"
-        logger.log(f"write csv: {path}")
         write_csv(graph_rows, path)
+        logger.log(f"  Wrote CSV: {path.name}")
 
     left_meta = build_node_metadata(left_leaf, corpora, node_level=left_level, side="left")
     right_meta = build_node_metadata(right_leaf, corpora, node_level=right_level, side="right")
 
     G = None
     if nx is not None:
-        logger.log("build networkx graph")
         G = nx.DiGraph()
         for nid, meta in left_meta.items():
             G.add_node(nid, **meta)
@@ -823,7 +666,6 @@ def run_experiment(
 
         if bool(output_cfg.get("write_gexf")):
             path = out_dir / "graph.gexf"
-            logger.log(f"write gexf: {path}")
 
             # Для GEXF нужен отдельный "безопасный" граф:
             # networkx.write_gexf не принимает tuple/list/dict как значения атрибутов.
@@ -853,12 +695,14 @@ def run_experiment(
                     G_gexf.add_edge(u, v, **edge_attrs)
 
             nx.write_gexf(G_gexf, path)
+            logger.log(f"  Wrote GEXF: {path.name}")
 
     viz_cfg = dict(exp.get("viz") or {})
     if bool(viz_cfg.get("enabled")) and bool(output_cfg.get("write_png")):
         path = out_dir / "graph.png"
         logger.log(
-            f"render png: {path} (top_n_edges={viz_cfg.get('top_n_edges')}, total_graph_rows={len(graph_rows)})"
+            f"  Rendering PNG: {path.name} "
+            f"(top_n_edges={viz_cfg.get('top_n_edges')}, total_graph_rows={len(graph_rows)})"
         )
         render_bipartite_graph(
             graph_rows=graph_rows,
@@ -870,8 +714,15 @@ def run_experiment(
             label_right=bool(viz_cfg.get("label_right", True)),
             top_n_edges=viz_cfg.get("top_n_edges"),
         )
+        logger.log(f"  Wrote PNG: {path.name}")
 
-    logger.log("experiment finished")
+    logger.log("Experiment finished")
+    logger.log(
+        f"Summary: left_leaf={len(left_leaf)}, right_leaf={len(right_leaf)}, "
+        f"candidates={len(candidates)}, detail_rows={len(detail_rows)}, graph_rows={len(graph_rows)}"
+    )
+    logger.log(f"Output dir: {out_dir}")
+
     return {
         "experiment_id": experiment_id,
         "detail_rows": detail_rows,
