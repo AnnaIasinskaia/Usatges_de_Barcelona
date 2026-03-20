@@ -62,6 +62,20 @@ def load_config_module(module_name: str) -> Any:
     return importlib.import_module(module_name)
 
 
+def resolve_logging_config(
+    config_module: Any,
+    experiment_cfg: Dict[str, Any],
+    progress_every_override: Optional[int] = None,
+) -> Dict[str, Any]:
+    defaults = dict(getattr(config_module, "LOGGING_DEFAULTS", {}) or {})
+    local = dict(experiment_cfg.get("logging") or {})
+    merged = dict(defaults)
+    merged.update(local)
+    if progress_every_override is not None:
+        merged["scoring_progress_every"] = progress_every_override
+    return merged
+
+
 def resolve_group_tokens(items: Sequence[str], groups: Dict[str, List[str]]) -> List[str]:
     out: List[str] = []
     for x in items:
@@ -159,7 +173,6 @@ def chunk_segments(base: Sequence[Segment], chunking_cfg: Dict[str, Any], logger
 
 
 _DOC_RE = re.compile(r"_doc(\d+)", re.IGNORECASE)
-_NUM_RE = re.compile(r"\d+")
 
 
 def extract_doc_no(seg: Segment) -> Optional[int]:
@@ -176,14 +189,20 @@ def lemmatize_segments(
     min_lemma_length: int,
     logger: ProgressLogger,
     label: str,
+    progress_every: Optional[int] = None,
 ) -> Dict[str, List[str]]:
     lemmas_by_id: Dict[str, List[str]] = {}
-    for seg in segments:
+    total = len(segments)
+    for idx, seg in enumerate(segments, 1):
         try:
             lem = preprocess_segment(seg.text, lemmatizer, min_length=min_lemma_length)
         except Exception:
             lem = []
         lemmas_by_id[seg.id] = lem
+
+        if progress_every and idx % max(1, int(progress_every)) == 0:
+            logger.log(f"  Lemmatization progress ({label}): {idx}/{total}")
+
     return lemmas_by_id
 
 
@@ -195,6 +214,7 @@ def cosine_candidates_dense(
     threshold: float,
     top_k_per_left: Optional[int],
     logger: ProgressLogger,
+    progress_every: Optional[int] = None,
 ) -> List[Tuple[str, str, float]]:
     sim = tfidf_left @ tfidf_right.T
 
@@ -206,7 +226,8 @@ def cosine_candidates_dense(
         return pairs
 
     k = int(top_k_per_left)
-    for i in range(sim.shape[0]):
+    total_rows = sim.shape[0]
+    for i in range(total_rows):
         row = sim[i]
         if row.size == 0:
             continue
@@ -221,6 +242,9 @@ def cosine_candidates_dense(
             if v >= threshold:
                 pairs.append((left_ids[i], right_ids[int(j)], v))
 
+        if progress_every and (i + 1) % max(1, int(progress_every)) == 0:
+            logger.log(f"  Candidate selection progress: {i + 1}/{total_rows}")
+
     return pairs
 
 
@@ -232,7 +256,8 @@ def compute_borrow_score(
     model: Dict[str, Any],
 ) -> Tuple[float, float, float]:
     tess = float(tesserae_score(left_lem, right_lem, idf))
-    if cos_sim + tess * float(model["beta"]) > float(model["final_threshold"]) * 0.5:
+    gate_factor = float(model.get("soft_cosine_gate_factor", 0.5))
+    if cos_sim + tess * float(model["beta"]) > float(model["final_threshold"]) * gate_factor:
         soft = float(
             soft_cosine_similarity(
                 left_lem,
@@ -411,7 +436,7 @@ def run_experiment(
     config_module: Any,
     experiment_id: str,
     verbose: bool = True,
-    progress_every: int = 1000,
+    progress_every: Optional[int] = None,
 ) -> Dict[str, Any]:
     logger = ProgressLogger(enabled=verbose)
 
@@ -423,6 +448,11 @@ def run_experiment(
         raise KeyError(f"Unknown experiment_id={experiment_id}. Available: {sorted(experiments.keys())}")
 
     exp = experiments[experiment_id]
+    logging_cfg = resolve_logging_config(config_module, exp, progress_every_override=progress_every)
+    lemmatize_progress_every = logging_cfg.get("lemmatize_progress_every")
+    candidate_progress_every = logging_cfg.get("candidate_progress_every")
+    scoring_progress_every = logging_cfg.get("scoring_progress_every")
+
     out_dir = Path(exp["output"]["dir"])
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -488,8 +518,22 @@ def run_experiment(
     lemmatizer = LatinLemmatizer(use_collatinus=bool(model.get("use_collatinus", False)))
     min_lemma_length = int(model.get("min_lemma_length", 3))
 
-    left_lemmas = lemmatize_segments(left_leaf, lemmatizer, min_lemma_length, logger, "left")
-    right_lemmas = lemmatize_segments(right_leaf, lemmatizer, min_lemma_length, logger, "right")
+    left_lemmas = lemmatize_segments(
+        left_leaf,
+        lemmatizer,
+        min_lemma_length,
+        logger,
+        "left",
+        progress_every=lemmatize_progress_every,
+    )
+    right_lemmas = lemmatize_segments(
+        right_leaf,
+        lemmatizer,
+        min_lemma_length,
+        logger,
+        "right",
+        progress_every=lemmatize_progress_every,
+    )
     logger.log(f"  Lemmatization done: left={len(left_lemmas)}, right={len(right_lemmas)}")
 
     left_ids = [s.id for s in left_leaf]
@@ -524,6 +568,7 @@ def run_experiment(
         threshold=threshold,
         top_k_per_left=top_k,
         logger=logger,
+        progress_every=candidate_progress_every,
     )
     logger.log(f"  Candidates found: {len(candidates)} (threshold={threshold}, top_k={top_k})")
 
@@ -600,7 +645,9 @@ def run_experiment(
         })
         kept_after_scoring += 1
 
-        if idx % max(1, progress_every) == 0 or idx == len(candidates):
+        if scoring_progress_every and (
+            idx % max(1, int(scoring_progress_every)) == 0 or idx == len(candidates)
+        ):
             logger.log(
                 f"  Scoring progress: {idx}/{len(candidates)}, "
                 f"kept={kept_after_scoring}, "
@@ -744,7 +791,12 @@ def main() -> None:
     ap.add_argument("--config", default="config_unified", help="Python module name, e.g. config_unified")
     ap.add_argument("--experiment", required=True, help="Experiment id, see EXPERIMENTS in config")
     ap.add_argument("--quiet", action="store_true", help="Disable progress logs")
-    ap.add_argument("--progress-every", type=int, default=1000, help="Progress print period for candidate scoring")
+    ap.add_argument(
+        "--progress-every",
+        type=int,
+        default=None,
+        help="Override scoring progress period from logging config",
+    )
     args = ap.parse_args()
 
     cfg_mod = load_config_module(args.config)

@@ -203,12 +203,12 @@ LOGGING_DEFAULTS = {
     # Для коротких прогонов можно ставить меньше, для длинных — больше.
     "scoring_progress_every": 1000,
 
-    # Заготовка под следующие итерации:
-    # unified pipeline может начать читать это значение вместо хардкода,
-    # если понадобится более детальный прогресс на этапе лемматизации.
+    # Частота progress-логов на этапе лемматизации.
+    # None отключает промежуточные сообщения.
     "lemmatize_progress_every": None,
 
-    # Заготовка под возможный progress на этапе генерации кандидатов.
+    # Частота progress-логов на этапе генерации кандидатов.
+    # None отключает промежуточные сообщения.
     "candidate_progress_every": None,
 }
 
@@ -242,7 +242,6 @@ EXPERIMENTS = {
             "right_node_level": "parent",
             "weight_mode": "max",
             "min_hits": 1,
-            "keep_best_evidence": True,
         },
         "viz": {
             "enabled": True,
@@ -287,7 +286,6 @@ EXPERIMENTS = {
             "right_node_level": "parent",
             "weight_mode": "max",
             "min_hits": 2,
-            "keep_best_evidence": True,
         },
         "viz": {
             "enabled": True,
@@ -331,7 +329,6 @@ EXPERIMENTS = {
             "right_node_level": "parent",
             "weight_mode": "max",
             "min_hits": 2,
-            "keep_best_evidence": True,
         },
         "viz": {
             "enabled": True,
@@ -388,7 +385,6 @@ EXPERIMENTS = {
             "right_node_level": "parent",
             "weight_mode": "max",
             "min_hits": 2,
-            "keep_best_evidence": True,
         },
         "viz": {
             "enabled": True,
