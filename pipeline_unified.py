@@ -195,12 +195,15 @@ def lemmatize_segments(
     for idx, seg in enumerate(segments, 1):
         try:
             lem = preprocess_segment(seg.text, lemmatizer, min_length=min_lemma_length)
-        except Exception:
+        except Exception as e:
+            logger.log(
+                f"  Preprocessing error ({label}) seg_id={seg.id} corpus={seg.corpus}: {type(e).__name__}: {e}"
+            )
             lem = []
         lemmas_by_id[seg.id] = lem
 
         if progress_every and idx % max(1, int(progress_every)) == 0:
-            logger.log(f"  Lemmatization progress ({label}): {idx}/{total}")
+            logger.log(f"  Preprocessing progress ({label}): {idx}/{total}")
 
     return lemmas_by_id
 
@@ -474,9 +477,9 @@ def run_experiment(
         f"right {len(right_base)} -> {len(right_leaf)}"
     )
 
-    logger.log("Step 3/7: Preprocessing and lemmatization...")
+    logger.log("Step 3/7: Preprocessing and token reduction...")
     model = dict(exp.get("model") or {})
-    lemmatizer = LatinLemmatizer(use_collatinus=bool(model.get("use_collatinus", False)))
+    lemmatizer = LatinLemmatizer()
     min_lemma_length = int(model.get("min_lemma_length", 3))
 
     left_lemmas = lemmatize_segments(
@@ -495,7 +498,7 @@ def run_experiment(
         "right",
         progress_every=lemmatize_progress_every,
     )
-    logger.log(f"  Lemmatization done: left={len(left_lemmas)}, right={len(right_lemmas)}")
+    logger.log(f"  Preprocessing done: left={len(left_lemmas)}, right={len(right_lemmas)}")
 
     left_ids = [s.id for s in left_leaf]
     right_ids = [s.id for s in right_leaf]

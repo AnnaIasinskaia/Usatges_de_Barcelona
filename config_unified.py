@@ -168,7 +168,6 @@ GROUPS = {
 # Они должны влиять на candidate selection / scoring / alignment,
 # а не на формат вывода или логирование.
 MODEL_DEFAULTS = {
-    "use_collatinus": False,
     "min_lemma_length": 3,
     "ngram_range": (1, 3),
     "max_df": 0.50,
@@ -229,7 +228,7 @@ EXPERIMENTS = {
             "enabled": False,
         },
         "candidate_selection": {
-            "threshold": 0.08,
+            "threshold": 0.06,
             "top_k_per_left": 3,
         },
         "model": dict(MODEL_DEFAULTS),
@@ -247,7 +246,7 @@ EXPERIMENTS = {
             "enabled": True,
             "straight_edges": True,
             "edge_color_by": "left_corpus",
-            "label_left": False,
+            "label_left": True,
             "label_right": True,
             "top_n_edges": 100,
         },
