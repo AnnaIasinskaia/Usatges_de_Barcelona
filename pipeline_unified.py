@@ -19,8 +19,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-import numpy as np
-
 try:
     import networkx as nx
 except Exception:  # pragma: no cover
@@ -31,6 +29,7 @@ from alignment import smith_waterman
 from features import (
     build_tfidf_matrix,
     compute_idf,
+    select_tfidf_candidates,
     soft_cosine_similarity,
     tesserae_score,
 )
@@ -205,47 +204,6 @@ def lemmatize_segments(
 
     return lemmas_by_id
 
-
-def cosine_candidates_dense(
-    tfidf_left: np.ndarray,
-    tfidf_right: np.ndarray,
-    left_ids: List[str],
-    right_ids: List[str],
-    threshold: float,
-    top_k_per_left: Optional[int],
-    logger: ProgressLogger,
-    progress_every: Optional[int] = None,
-) -> List[Tuple[str, str, float]]:
-    sim = tfidf_left @ tfidf_right.T
-
-    pairs: List[Tuple[str, str, float]] = []
-    if top_k_per_left is None:
-        rows, cols = np.where(sim >= threshold)
-        for i, j in zip(rows, cols):
-            pairs.append((left_ids[int(i)], right_ids[int(j)], float(sim[int(i), int(j)])))
-        return pairs
-
-    k = int(top_k_per_left)
-    total_rows = sim.shape[0]
-    for i in range(total_rows):
-        row = sim[i]
-        if row.size == 0:
-            continue
-        if k >= row.size:
-            idx = np.argsort(row)[::-1]
-        else:
-            idx = np.argpartition(row, -k)[-k:]
-            idx = idx[np.argsort(row[idx])[::-1]]
-
-        for j in idx:
-            v = float(row[int(j)])
-            if v >= threshold:
-                pairs.append((left_ids[i], right_ids[int(j)], v))
-
-        if progress_every and (i + 1) % max(1, int(progress_every)) == 0:
-            logger.log(f"  Candidate selection progress: {i + 1}/{total_rows}")
-
-    return pairs
 
 
 def compute_borrow_score(
@@ -560,15 +518,15 @@ def run_experiment(
     threshold = float(cand_cfg.get("threshold", model.get("tfidf_cosine_threshold", 0.08)))
     top_k = cand_cfg.get("top_k_per_left")
 
-    candidates = cosine_candidates_dense(
+    candidates = select_tfidf_candidates(
         tfidf_left,
         tfidf_right,
         left_ids=left_ids,
         right_ids=right_ids,
         threshold=threshold,
         top_k_per_left=top_k,
-        logger=logger,
         progress_every=candidate_progress_every,
+        progress_callback=logger.log,
     )
     logger.log(f"  Candidates found: {len(candidates)} (threshold={threshold}, top_k={top_k})")
 

@@ -1,14 +1,16 @@
 """
-Step 1-2: Text loading, normalization, lemmatization.
+Step 1-2: Text loading, normalization, and lemmatization.
 
-Segmentation:
-  - segmenters.seg_usatges  (Bastardas edition)
-  - source_segmenters.py  (dispatcher -> seg_*.py per source)
+This module is responsible only for text preprocessing utilities:
+- loading .txt/.docx sources
+- medieval Latin normalization and tokenization
+- lemmatization/stemming
+- per-segment preprocessing
 """
 import re
 import zipfile
 from pathlib import Path
-from typing import List, Tuple
+from typing import List
 
 try:
     import docx as _docx_module
@@ -22,16 +24,13 @@ try:
 except ImportError:
     pass
 
-# Re-export segmenters so pipeline.py can do:
-#   from preprocessing import segment_usatges, segment_source
-from segmenters.seg_usatges import segment_usatges  # noqa: F401
-from source_segmenters import segment_source    # noqa: F401
-
 __all__ = [
-    "segment_usatges", "segment_source",
-    "normalize_latin", "tokenize_latin",
-    "LatinLemmatizer", "preprocess_segment",
-    "load_docx", "load_txt",
+    "normalize_latin",
+    "tokenize_latin",
+    "LatinLemmatizer",
+    "preprocess_segment",
+    "load_docx",
+    "load_txt",
     "LATIN_STOPWORDS",
 ]
 

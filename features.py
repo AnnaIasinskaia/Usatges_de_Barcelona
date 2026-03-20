@@ -1,11 +1,15 @@
 """
-Step 3-4: Feature extraction (TF-IDF), Tesserae scoring, Soft Cosine.
+Step 3-4: Feature extraction (TF-IDF), candidate selection, Tesserae scoring,
+Soft Cosine.
 """
-import numpy as np
-from typing import List, Dict, Tuple, Optional
-from collections import Counter
-import math
+from __future__ import annotations
+
 import logging
+import math
+from collections import Counter
+from typing import Callable, Dict, List, Optional, Tuple
+
+import numpy as np
 
 log = logging.getLogger(__name__)
 
@@ -63,20 +67,56 @@ def build_tfidf_matrix(
     return tfidf, vocab, term2idx
 
 
-def cosine_similarity_matrix(A: np.ndarray, B: np.ndarray) -> np.ndarray:
-    return A @ B.T
-
-
-def find_candidate_pairs(
-    sim_matrix: np.ndarray,
+def select_tfidf_candidates(
+    tfidf_left: np.ndarray,
+    tfidf_right: np.ndarray,
+    left_ids: List[str],
+    right_ids: List[str],
     threshold: float,
-    usatge_ids: List[str],
-    source_ids: List[str],
+    top_k_per_left: Optional[int],
+    progress_every: Optional[int] = None,
+    progress_callback: Optional[Callable[[str], None]] = None,
 ) -> List[Tuple[str, str, float]]:
-    pairs = []
-    rows, cols = np.where(sim_matrix >= threshold)
-    for i, j in zip(rows, cols):
-        pairs.append((usatge_ids[i], source_ids[j], float(sim_matrix[i, j])))
+    """
+    Build candidate pairs from two normalized TF-IDF matrices.
+
+    If ``top_k_per_left`` is None, returns all pairs above ``threshold``.
+    Otherwise, keeps at most top-k candidates for each left row, still subject
+    to the same threshold.
+    """
+    sim = tfidf_left @ tfidf_right.T
+
+    pairs: List[Tuple[str, str, float]] = []
+    if top_k_per_left is None:
+        rows, cols = np.where(sim >= threshold)
+        for i, j in zip(rows, cols):
+            pairs.append((left_ids[int(i)], right_ids[int(j)], float(sim[int(i), int(j)])))
+        return pairs
+
+    k = int(top_k_per_left)
+    total_rows = sim.shape[0]
+    for i in range(total_rows):
+        row = sim[i]
+        if row.size == 0:
+            continue
+        if k >= row.size:
+            idx = np.argsort(row)[::-1]
+        else:
+            idx = np.argpartition(row, -k)[-k:]
+            idx = idx[np.argsort(row[idx])[::-1]]
+
+        for j in idx:
+            v = float(row[int(j)])
+            if v >= threshold:
+                pairs.append((left_ids[i], right_ids[int(j)], v))
+
+        if (
+            progress_every is not None
+            and progress_callback is not None
+            and (i + 1) % max(1, int(progress_every)) == 0
+        ):
+            progress_callback(f"  Candidate selection progress: {i + 1}/{total_rows}")
+
     return pairs
 
 
@@ -151,8 +191,8 @@ def soft_cosine_similarity(
         if not common:
             return 0.0
         dot = sum(set_a[t] * set_b[t] for t in common)
-        norm_a = math.sqrt(sum(v*v for v in set_a.values()))
-        norm_b = math.sqrt(sum(v*v for v in set_b.values()))
+        norm_a = math.sqrt(sum(v * v for v in set_a.values()))
+        norm_b = math.sqrt(sum(v * v for v in set_b.values()))
         if norm_a == 0 or norm_b == 0:
             return 0.0
         return dot / (norm_a * norm_b)

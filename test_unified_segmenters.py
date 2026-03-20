@@ -7,6 +7,7 @@
 - unified-функция обязана принимать (source_file, source_name)
 - возвращаемое значение обязано быть list[tuple[str, str]]
 - segment_id обязаны быть уникальны в пределах источника
+- TEST_CONFIG, config_unified.CORPORA и source_segmenters должны быть согласованы
 """
 
 from __future__ import annotations
@@ -121,6 +122,77 @@ def compute_basic_stats(segments: list[tuple[str, str]]) -> dict[str, float | in
     }
 
 
+def validate_registry_consistency() -> tuple[bool, str]:
+    """
+    Проверяет согласованность трёх реестров:
+    - TEST_CONFIG
+    - config_unified.CORPORA
+    - source_segmenters.get_available_segmenters()
+    """
+    try:
+        cfg_mod = importlib.import_module("config_unified")
+        corpora = dict(getattr(cfg_mod, "CORPORA"))
+    except Exception as exc:
+        return False, f"Не удалось импортировать config_unified.CORPORA: {exc}\n{traceback.format_exc()}"
+
+    try:
+        seg_mod = importlib.import_module("source_segmenters")
+        segmenters = dict(seg_mod.get_available_segmenters())
+    except Exception as exc:
+        return False, f"Не удалось импортировать source_segmenters: {exc}\n{traceback.format_exc()}"
+
+    test_sources = {source_name for _, source_name in TEST_CONFIG.values()}
+    corpora_sources = set(corpora.keys())
+    segmenter_sources = set(segmenters.keys())
+
+    errors: list[str] = []
+
+    only_in_test = sorted(test_sources - corpora_sources)
+    if only_in_test:
+        errors.append(
+            "Источник есть в TEST_CONFIG, но отсутствует в config_unified.CORPORA: "
+            + ", ".join(only_in_test)
+        )
+
+    only_in_corpora = sorted(corpora_sources - test_sources)
+    if only_in_corpora:
+        errors.append(
+            "Источник есть в config_unified.CORPORA, но отсутствует в TEST_CONFIG: "
+            + ", ".join(only_in_corpora)
+        )
+
+    only_in_segmenters_vs_corpora = sorted(segmenter_sources - corpora_sources)
+    if only_in_segmenters_vs_corpora:
+        errors.append(
+            "Источник есть в source_segmenters, но отсутствует в config_unified.CORPORA: "
+            + ", ".join(only_in_segmenters_vs_corpora)
+        )
+
+    only_in_corpora_vs_segmenters = sorted(corpora_sources - segmenter_sources)
+    if only_in_corpora_vs_segmenters:
+        errors.append(
+            "Источник есть в config_unified.CORPORA, но отсутствует в source_segmenters: "
+            + ", ".join(only_in_corpora_vs_segmenters)
+        )
+
+    only_in_test_vs_segmenters = sorted(test_sources - segmenter_sources)
+    if only_in_test_vs_segmenters:
+        errors.append(
+            "Источник есть в TEST_CONFIG, но отсутствует в source_segmenters: "
+            + ", ".join(only_in_test_vs_segmenters)
+        )
+
+    if errors:
+        return False, "\n".join(errors)
+
+    return True, (
+        "Реестры согласованы: "
+        f"TEST_CONFIG={len(test_sources)}, "
+        f"CORPORA={len(corpora_sources)}, "
+        f"segmenters={len(segmenter_sources)}"
+    )
+
+
 def test_unified_function(
     module_name: str,
     possible_paths: list[str],
@@ -159,6 +231,17 @@ def test_unified_function(
 def main() -> None:
     print("=== Строгое тестирование unified-сегментеров ===\n")
     sys.path.insert(0, ".")
+
+    print("Проверяем согласованность TEST_CONFIG ↔ config_unified ↔ source_segmenters...")
+    registry_ok, registry_msg = validate_registry_consistency()
+    registry_status = "✓" if registry_ok else "✗"
+    print(f"  {registry_status} {registry_msg}")
+
+    if not registry_ok:
+        print("\nОстановка: сначала исправьте рассогласование реестров.")
+        sys.exit(1)
+
+    print()
 
     results: list[tuple[str, bool, str]] = []
 
