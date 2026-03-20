@@ -33,7 +33,7 @@ TEST_CONFIG = {
     'seg_zhaime1301': (['data/PragmatikaZhaumeII1301_v2.txt'], 'PragmatikaZhaumeII1301'),
     'seg_gramoty_911': (['data/Gramoty911.txt'], 'Gramoty911'),
     'seg_gramoty_12': (['data/Gramoty12.txt'], 'Gramoty12'),
-    'seg_usatges': (['data/Bastardas Usatges de Barcelona_djvu.txt'], 'UsatgesBarcelona'),
+    'seg_usatges': (['data/Bastardas_Usatges_de_Barcelona_djvu.txt'], 'UsatgesBarcelona'),
 }
 
 

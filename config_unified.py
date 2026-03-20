@@ -39,13 +39,13 @@ CORPORA = {
         "color": "#1f77b4",
     },
     "LexVisigoth": {
-        "path": DATA_DIR / "Lex_visigothorum_v2.txt",
+        "path": DATA_DIR / "legesvisigothor00zeumgoog_text.txt",
         "kind": "latin_source",
         "display_ru": "Вестготская\nправда",
         "color": "#9467bd",
     },
     "ExceptPetri": {
-        "path": DATA_DIR / "Exeptionis_Legum_Romanorum_Petri_v2.txt",
+        "path": DATA_DIR / "Exeptionis_Legum_Romanorum_Petri_v3.txt",
         "kind": "latin_source",
         "display_ru": "Извлечения\nПетра",
         "color": "#ff7f0e",
@@ -69,13 +69,13 @@ CORPORA = {
         "color": "#e377c2",
     },
     "ObychaiMiraveta1319Fix": {
-        "path": DATA_DIR / "ObychaiMiraveta1319Fix.txt",
+        "path": DATA_DIR / "ObychaiMiraveta1319Fix_v2.txt",
         "kind": "catalan_source",
         "display_ru": "Обычаи\nМиравета",
         "color": "#7f7f7f",
     },
     "ObychaiOrty1296": {
-        "path": DATA_DIR / "ObychaiOrty1296.txt",
+        "path": DATA_DIR / "ObychaiOrty1296_v2.txt",
         "kind": "catalan_source",
         "display_ru": "Обычаи\nОрты",
         "color": "#bcbd22",
@@ -87,7 +87,7 @@ CORPORA = {
         "color": "#17becf",
     },
     "ObychaiTarregi1290E": {
-        "path": DATA_DIR / "ObychaiTarregi1290E.txt",
+        "path": DATA_DIR / "ObychaiTarregi1290E_v2.txt",
         "kind": "catalan_source",
         "display_ru": "Обычаи\nТарреги",
         "color": "#aec7e8",
@@ -123,7 +123,7 @@ CORPORA = {
         "color": "#f03b20",
     },
     "UsatgesBarcelona": {
-        "path": DATA_DIR / "Bastardas Usatges de Barcelona_djvu.txt",
+        "path": DATA_DIR / "Bastardas_Usatges_de_Barcelona_djvu.txt",
         "kind": "usatges",
         "display_ru": "Обычаи\nБарселоны",
         "color": "#17becf",
@@ -136,8 +136,8 @@ GROUPS = {
         "Evangelium",
         "CorpusJuris",
         "Etymologiae",
-        #"LexVisigoth",
-        #"ExceptPetri",
+        "LexVisigoth",
+        "ExceptPetri",
     ],
     "CATALAN_SOURCES": [
         "ObychaiTortosy1272to1279",
