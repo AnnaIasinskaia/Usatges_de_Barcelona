@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
@@ -12,16 +13,20 @@ inspect_unified_preprocessing.py
 - выбирает умеренное число сегментов из начала / середины / конца
 - для каждого сегмента показывает:
     * исходный текст
-    * normalize_latin(...)
-    * tokenize_latin(...)
-    * lemmatize_tokens(...)
-    * preprocess_segment(...)
+    * cleaned
+    * mode
+    * scores
+    * raw_tokens
+    * normalized_tokens
+    * stemmed_tokens
+    * final_tokens
+- дополнительно печатает backward-compatible normalize_latin(...) / tokenize_latin(...)
 - печатает краткую статистику по источнику
 
 Цель:
 - вручную сравнивать поведение preprocessing на разных типах корпусов
-- находить места, где латинская нормализация ломает каталонские/смешанные тексты
-- готовить безопасный рефакторинг preprocessing.py
+- находить места, где локальная детекция режима ошибается
+- быстро дебажить нормализацию, стемминг и фильтрацию
 """
 
 from __future__ import annotations
@@ -142,20 +147,16 @@ def sample_indices(n: int, per_zone: int) -> list[int]:
 
     result: list[int] = []
 
-    # начало
     result.extend(range(0, min(per_zone, n)))
 
-    # середина
     mid = n // 2
     half = per_zone // 2
     start_mid = max(0, mid - half)
     end_mid = min(n, start_mid + per_zone)
     result.extend(range(start_mid, end_mid))
 
-    # конец
     result.extend(range(max(0, n - per_zone), n))
 
-    # dedup + preserve order
     seen = set()
     ordered = []
     for idx in result:
@@ -180,6 +181,17 @@ def format_tokens(tokens: Iterable[str], max_items: int = 30) -> str:
     return f"{head} ... (+{len(items) - max_items} more)"
 
 
+def format_scores(scores: dict[str, float]) -> str:
+    parts = []
+    for key in ("latin", "romance", "ocr_noise"):
+        if key in scores:
+            parts.append(f"{key}={scores[key]}")
+    for key, value in scores.items():
+        if key not in {"latin", "romance", "ocr_noise"}:
+            parts.append(f"{key}={value}")
+    return ", ".join(parts)
+
+
 def inspect_segment(
     seg_id: str,
     seg_text: str,
@@ -187,23 +199,33 @@ def inspect_segment(
     min_length: int,
     raw_preview: int,
 ) -> str:
-    normalized = normalize_latin(seg_text)
-    tokens = tokenize_latin(normalized)
-    lemmas = lemmatizer.lemmatize_tokens(tokens)
-    final_lemmas = preprocess_segment(
+    normalized_compat = normalize_latin(seg_text)
+    tokens_compat = tokenize_latin(normalized_compat)
+    lemmas_compat = lemmatizer.lemmatize_tokens(tokens_compat)
+
+    debug = preprocess_segment(
         seg_text,
         lemmatizer,
         remove_stopwords=True,
         min_length=min_length,
+        return_debug=True,
     )
 
     lines = []
     lines.append(f"  id: {seg_id}")
-    lines.append(f"  raw:          {shorten(seg_text, raw_preview)}")
-    lines.append(f"  normalized:   {shorten(normalized, raw_preview)}")
-    lines.append(f"  tokens[{len(tokens)}]: {format_tokens(tokens)}")
-    lines.append(f"  lemmas[{len(lemmas)}]: {format_tokens(lemmas)}")
-    lines.append(f"  final[{len(final_lemmas)}]: {format_tokens(final_lemmas)}")
+    lines.append(f"  raw:               {shorten(seg_text, raw_preview)}")
+    lines.append(f"  cleaned:           {shorten(debug['cleaned'], raw_preview)}")
+    lines.append(f"  mode:              {debug['mode']}")
+    lines.append(f"  scores:            {format_scores(debug['scores'])}")
+    lines.append("")
+    lines.append(f"  compat_normalized: {shorten(normalized_compat, raw_preview)}")
+    lines.append(f"  compat_tokens[{len(tokens_compat)}]:  {format_tokens(tokens_compat)}")
+    lines.append(f"  compat_lemmas[{len(lemmas_compat)}]:  {format_tokens(lemmas_compat)}")
+    lines.append("")
+    lines.append(f"  raw_tokens[{len(debug['raw_tokens'])}]:         {format_tokens(debug['raw_tokens'])}")
+    lines.append(f"  normalized[{len(debug['normalized_tokens'])}]:      {format_tokens(debug['normalized_tokens'])}")
+    lines.append(f"  stemmed[{len(debug['stemmed_tokens'])}]:         {format_tokens(debug['stemmed_tokens'])}")
+    lines.append(f"  final[{len(debug['final_tokens'])}]:           {format_tokens(debug['final_tokens'])}")
     return "\n".join(lines)
 
 
@@ -295,7 +317,7 @@ def main() -> None:
         "--raw-preview",
         type=int,
         default=220,
-        help="Максимальная длина превью raw/normalized текста",
+        help="Максимальная длина превью raw/cleaned/normalized текста",
     )
     ap.add_argument(
         "--only",
