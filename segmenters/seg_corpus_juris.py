@@ -1,20 +1,23 @@
-"""Stable segmenter for Corpus Juris Civilis (Digesta / Pandectae).
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Stable segmenter for Corpus Juris Civilis (Digesta / Pandectae).
 
 Подход:
 - максимально простой line-based parser;
 - regex только на структурном номере Dig., без шумового слоя;
 - дубликаты id схлопываются: сохраняется самый длинный текст;
 - title-headers вида Dig. x.y.0. не становятся сегментами;
-- unified-вход без повторной validate_segments().
+- unified-вход без повторной лишней обвязки.
 """
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
-import re
 
-from .seg_common import clean_text, validate_segments, read_source_file
+from .seg_common import clean_text, read_source_file, validate_segments
 
 
 _DIG_HEADER_RE = re.compile(
@@ -34,7 +37,6 @@ _SKIP_PREFIXES = (
 )
 
 _STOP_MARKERS = (
-    "INDEX",
     "INDEX",
     "APPENDIX",
     "APPENDICES",
@@ -82,18 +84,10 @@ def _is_noise_line(line: str) -> bool:
     if upper.startswith(_SKIP_PREFIXES):
         return True
 
-    # Оглавления/концевые разделы
     if any(marker in upper for marker in _STOP_MARKERS):
         return True
 
     return False
-
-
-def _extract_first_header_num(text: str) -> Optional[Tuple[int, int]]:
-    m = _DIG_HEADER_RE.search(text)
-    if not m:
-        return None
-    return m.start(), m.end()
 
 
 def _extract_author_and_body(lines: List[str]) -> Tuple[Optional[str], List[str]]:
@@ -141,7 +135,6 @@ def _finalize_segment(
 
     seg_id = _make_segment_id(source_name, dig_num)
 
-    # Дубликаты неизбежны в некоторых изданиях/OCR: сохраняем наиболее полный вариант.
     prev = out.get(seg_id)
     if prev is None or len(seg_text) > len(prev):
         out[seg_id] = seg_text
@@ -160,7 +153,6 @@ def segment_corpus_juris(text: str, source_name: str) -> List[Tuple[str, str]]:
 
     lines = text.splitlines()
 
-    # Начинаем с первого Dig.-заголовка, чтобы не тащить предисловия.
     start_idx = 0
     for i, line in enumerate(lines):
         if _DIG_HEADER_RE.match(_safe_str(line).strip()):
@@ -187,7 +179,6 @@ def segment_corpus_juris(text: str, source_name: str) -> List[Tuple[str, str]]:
             current_lines = []
             continue
 
-        # Конец полезного текста: если уже давно парсим Dig.-текст и встретили индекс/appendix.
         upper = stripped.upper()
         if current_num is not None and any(marker in upper for marker in _STOP_MARKERS):
             break
@@ -217,51 +208,48 @@ def segment_corpus_juris(text: str, source_name: str) -> List[Tuple[str, str]]:
 
 def segment_corpus_juris_unified(source_file, source_name):
     """
-    Унифицированная сегментация Corpus Juris Civilis.
-    Сегментер сам читает файл и возвращает list[(id, text)].
+    Unified segmenter for Corpus Juris Civilis.
+
+    Parameters
+    ----------
+    source_file : str | Path
+        Path to the source file.
+    source_name : str
+        Canonical source name, e.g. "CorpusJuris".
+
+    Returns
+    -------
+    list[tuple[str, str]]
+        List of (segment_id, segment_text) pairs.
     """
     text = read_source_file(source_file)
     return segment_corpus_juris(text, source_name)
 
 
-if __name__ == "__main__":
-    import statistics
-    import time
-
+def main() -> None:
     candidates = [
         Path("data/Corpus_Juris_Civilis_v2.txt"),
         Path("Corpus_Juris_Civilis_v2.txt"),
         Path("/mnt/data/Corpus_Juris_Civilis_v2.txt"),
     ]
 
-    p = next((x for x in candidates if x.exists()), None)
-    if p is None:
-        print("Not found. Expected one of:")
-        for c in candidates:
-            print(f"  - {c}")
+    src = next((p for p in candidates if p.exists()), None)
+    if src is None:
+        print("Source file not found.")
         raise SystemExit(1)
 
-    t0 = time.time()
-    text = read_source_file(p)
-    t1 = time.time()
-
-    segs = segment_corpus_juris(text, "CorpusJuris")
-    t2 = time.time()
-
-    print(f"Loaded in {t1 - t0:.2f}s: {len(text)} chars")
-    print(f"CorpusJuris: {len(segs)} segments in {t2 - t1:.2f}s")
+    segs = segment_corpus_juris_unified(src, "CorpusJuris")
+    print(f"CorpusJuris: {len(segs)} segments")
 
     if segs:
-        lengths = [len(txt.split()) for _, txt in segs]
-        print(
-            f"Lengths in words: min={min(lengths)}, "
-            f"median={statistics.median(lengths)}, max={max(lengths)}"
-        )
+        print("First 3 segments:")
+        for sid, txt in segs[:3]:
+            print(f"  {sid}: {txt[:120]}")
 
-        print("\nFirst 5 segments:")
-        for sid, txt in segs[:5]:
-            print(f"  {sid}: {txt[:140]}")
+        print("Last 3 segments:")
+        for sid, txt in segs[-3:]:
+            print(f"  {sid}: {txt[:120]}")
 
-        print("\nLast 5 segments:")
-        for sid, txt in segs[-5:]:
-            print(f"  {sid}: {txt[:140]}")
+
+if __name__ == "__main__":
+    main()

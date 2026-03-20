@@ -15,7 +15,9 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import List, Tuple, Dict, Any
+from typing import Any, Dict, List, Tuple
+
+from .seg_common import read_source_file, validate_segments
 
 _SECTION_RE = re.compile(r"^[IVX]+$", re.IGNORECASE)
 _ARTICLE_RE = re.compile(r"^\d+(?:\s*bis)?$", re.IGNORECASE)
@@ -32,7 +34,10 @@ _FOOTNOTE_RE = re.compile(r"^\s*\d+\s+[A-ZÁÉÍÓÚ]")
 _PAGE_RE = re.compile(r"^\s*\d{1,4}\s*$")
 _MULTI_SPACE_RE = re.compile(r"\s+")
 _HYPHEN_BREAK_RE = re.compile(r"(\w)-\s+(\w)")
-_LEADING_MARKER_RE = re.compile(r"^\s*\[(?:\d+(?:\s*bis)?|[IVX]+)\]\s*", re.IGNORECASE)
+_LEADING_MARKER_RE = re.compile(
+    r"^\s*\[(?:\d+(?:\s*bis)?|[IVX]+)\]\s*",
+    re.IGNORECASE,
+)
 
 
 def normalize_article_no(raw_id: str) -> str:
@@ -93,13 +98,15 @@ def _scan_markers(text: str) -> List[Dict[str, Any]]:
         is_article = bool(_ARTICLE_RE.fullmatch(raw_id))
         if not (is_section or is_article):
             continue
-        markers.append({
-            "raw_id": raw_id,
-            "start": m.start(),
-            "end": m.end(),
-            "is_section": is_section,
-            "is_article": is_article,
-        })
+        markers.append(
+            {
+                "raw_id": raw_id,
+                "start": m.start(),
+                "end": m.end(),
+                "is_section": is_section,
+                "is_article": is_article,
+            }
+        )
     return markers
 
 
@@ -150,110 +157,50 @@ def segment_lleida(text: str, source_name: str, debug: bool = False) -> List[Tup
     return segments
 
 
-def analyze_and_save(
-    text: str,
-    output_file: str,
-    source_name: str = "ObychaiLleidy12271228",
-    expected_main_count: int = 171,
-) -> List[Tuple[str, str]]:
-    print("=" * 80)
-    print("COSTUMS DE LLEIDA (1228) - ARTICLE SEGMENTATION")
-    print("=" * 80)
-
-    articles = segment_lleida(text, source_name=source_name, debug=False)
-
-    article_ids = [seg_id.rsplit("_Art", 1)[1] for seg_id, _ in articles]
-    bis_articles = [aid for aid in article_ids if aid.endswith("bis")]
-    main_articles = [aid for aid in article_ids if aid.isdigit()]
-
-    coverage = len(main_articles) / expected_main_count * 100 if expected_main_count else 0.0
-
-    print(f"Expected main articles: {expected_main_count}")
-    print(f"Found total segments: {len(articles)}")
-    print(f"  - Main numbered articles: {len(main_articles)}")
-    print(f"  - Bis articles: {len(bis_articles)}")
-    print(f"Coverage of main sequence: {coverage:.1f}%")
-
-    from collections import Counter
-    duplicates = [(n, c) for n, c in Counter(article_ids).items() if c > 1]
-    if duplicates:
-        print(f"\nDuplicates: {len(duplicates)}")
-        for num, count in sorted(duplicates)[:5]:
-            print(f"  Article {num}: {count} times")
-    else:
-        print("\nNo duplicates")
-
-    expected_nums = set(str(i) for i in range(1, expected_main_count + 1))
-    found_nums = set(main_articles)
-    missing = sorted(int(n) for n in (expected_nums - found_nums))
-    if missing:
-        print(f"\nMissing main articles: {len(missing)}")
-        if len(missing) <= 15:
-            print(f"  {missing}")
-        else:
-            print(f"  First 10: {missing[:10]}")
-            print(f"  Last 5: {missing[-5:]}")
-    else:
-        print("\nNo missing main articles")
-
-    with open(output_file, "w", encoding="utf-8") as f:
-        f.write(f"Total segments: {len(articles)}\n")
-        f.write(f"Main articles: {len(main_articles)}\n")
-        f.write(f"Bis articles: {len(bis_articles)}\n")
-        f.write("=" * 80 + "\n\n")
-        for seg_id, article_text in articles:
-            f.write("=" * 80 + "\n")
-            f.write(f"{seg_id}\n")
-            f.write("=" * 80 + "\n")
-            f.write(article_text)
-            f.write("\n\n")
-
-    print(f"\nResults saved to {output_file}")
-    return articles
-
-
 def segment_lleida_unified(source_file, source_name):
     """
     Unified Lleida segmenter.
-    Reads the source file and returns list[(id, text)] with unified IDs.
-    """
-    from .seg_common import read_source_file, validate_segments
 
+    Parameters
+    ----------
+    source_file : str | Path
+        Path to the source file.
+    source_name : str
+        Canonical source name, e.g. "ObychaiLleidy12271228".
+
+    Returns
+    -------
+    list[tuple[str, str]]
+        List of (segment_id, segment_text) pairs.
+    """
     text = read_source_file(source_file)
     raw_segments = segment_lleida(text, source_name=source_name, debug=False)
     return validate_segments(raw_segments, source_name)
 
 
-def main():
+def main() -> None:
     candidates = [
         Path("data/ObychaiLleidy12271228_v2.txt"),
         Path("ObychaiLleidy12271228_v2.txt"),
         Path("/mnt/data/ObychaiLleidy12271228_v2.txt"),
     ]
 
-    file_lleida = next((p for p in candidates if p.exists()), None)
-    if file_lleida is None:
-        print("Error: source file not found. Tried:")
-        for p in candidates:
-            print(f"  - {p}")
+    src = next((p for p in candidates if p.exists()), None)
+    if src is None:
+        print("Source file not found.")
         raise SystemExit(1)
 
-    print(f"Processing Costums de Lleida from {file_lleida}...")
-    text = file_lleida.read_text(encoding="utf-8", errors="replace")
-    articles = analyze_and_save(
-        text,
-        output_file="costums_lleida_segmented.txt",
-        source_name="ObychaiLleidy12271228",
-        expected_main_count=171,
-    )
+    segs = segment_lleida_unified(src, "ObychaiLleidy12271228")
+    print(f"ObychaiLleidy12271228: {len(segs)} segments")
 
-    print("\nFirst 5 segments:")
-    for seg_id, seg_text in articles[:5]:
-        print(f"  {seg_id}: {seg_text[:120]}")
+    if segs:
+        print("First 3 segments:")
+        for sid, txt in segs[:3]:
+            print(f"  {sid}: {txt[:120]}")
 
-    print("\nLast 5 segments:")
-    for seg_id, seg_text in articles[-5:]:
-        print(f"  {seg_id}: {seg_text[:120]}")
+        print("Last 3 segments:")
+        for sid, txt in segs[-3:]:
+            print(f"  {sid}: {txt[:120]}")
 
 
 if __name__ == "__main__":

@@ -1,43 +1,45 @@
 #!/usr/bin/env python3
 """
-Тестирование унифицированных функций сегментеров.
-Запускает каждую функцию на тестовых файлах, указанных в их main.
+Строгое тестирование unified-сегментеров.
 
-Дополнительно печатает базовую статистику:
-- число сегментов
-- WARNING о дубликатах id
-- min / median / max длины в словах
+Инварианты:
+- модуль обязан экспортировать ожидаемую unified-функцию
+- unified-функция обязана принимать (source_file, source_name)
+- возвращаемое значение обязано быть list[tuple[str, str]]
+- segment_id обязаны быть уникальны в пределах источника
 """
+
+from __future__ import annotations
+
+import importlib
 import sys
 import traceback
 from pathlib import Path
 from statistics import median
 
-# ВАЖНО:
-# Берём те же пути, что и в рабочем тесте, чтобы статистика считалась
-# на тех же самых файлах и не меняла число сегментов.
+
 TEST_CONFIG = {
-    'seg_corpus_juris': (['data/Corpus_Juris_Civilis_v2.txt'], 'CorpusJuris'),
-    'seg_evangelium': (['data/Evangelium_v2.txt'], 'Evangelium'),
-    'seg_lex_visigothorum': (['data/legesvisigothor00zeumgoog_text.txt'], 'LexVisigoth'),
-    'seg_exceptiones_petri': (['data/Exeptionis_Legum_Romanorum_Petri_v3.txt'], 'ExceptPetri'),
-    'seg_etymologiae': (['data/Isidori_Hispalensis_Episcopi_Etymologiarum_v2.txt'], 'Etymologiae'),
-    'seg_costums_tortosa': (['data/ObychaiTortosy1272to1279_v2.txt'], 'ObychaiTortosy1272to1279'),
-    'seg_lleida': (['data/ObychaiLleidy12271228_v2.txt'], 'ObychaiLleidy12271228'),
-    'seg_miravet': (['data/ObychaiMiraveta1319Fix_v2.txt'], 'ObychaiMiraveta1319Fix'),
-    'seg_orty': (['data/ObychaiOrty1296_v2.txt'], 'ObychaiOrty1296'),
-    'seg_privileges': (['data/RecognovrentProceres12831284_v2.txt'], 'RecognovrentProceres12831284'),
-    'seg_tarregi': (['data/ObychaiTarregi1290E_v2.txt'], 'ObychaiTarregi1290E'),
-    'seg_vald_aran': (['data/ObychaiValdArana1313_v2.txt'], 'ObychaiValdArana1313'),
-    'seg_zhaime1295': (['data/PragmatikaZhaumeII1295_v2.txt'], 'PragmatikaZhaumeII1295'),
-    'seg_zhaime1301': (['data/PragmatikaZhaumeII1301_v2.txt'], 'PragmatikaZhaumeII1301'),
-    'seg_gramoty_911': (['data/Gramoty911.txt'], 'Gramoty911'),
-    'seg_gramoty_12': (['data/Gramoty12.txt'], 'Gramoty12'),
-    'seg_usatges': (['data/Bastardas_Usatges_de_Barcelona_djvu.txt'], 'UsatgesBarcelona'),
+    "seg_corpus_juris": (["data/Corpus_Juris_Civilis_v2.txt"], "CorpusJuris"),
+    "seg_evangelium": (["data/Evangelium_v2.txt"], "Evangelium"),
+    "seg_lex_visigothorum": (["data/legesvisigothor00zeumgoog_text.txt"], "LexVisigoth"),
+    "seg_exceptiones_petri": (["data/Exeptionis_Legum_Romanorum_Petri_v3.txt"], "ExceptPetri"),
+    "seg_etymologiae": (["data/Isidori_Hispalensis_Episcopi_Etymologiarum_v2.txt"], "Etymologiae"),
+    "seg_costums_tortosa": (["data/ObychaiTortosy1272to1279_v2.txt"], "ObychaiTortosy1272to1279"),
+    "seg_lleida": (["data/ObychaiLleidy12271228_v2.txt"], "ObychaiLleidy12271228"),
+    "seg_miravet": (["data/ObychaiMiraveta1319Fix_v2.txt"], "ObychaiMiraveta1319Fix"),
+    "seg_orty": (["data/ObychaiOrty1296_v2.txt"], "ObychaiOrty1296"),
+    "seg_privileges": (["data/RecognovrentProceres12831284_v2.txt"], "RecognovrentProceres12831284"),
+    "seg_tarregi": (["data/ObychaiTarregi1290E_v2.txt"], "ObychaiTarregi1290E"),
+    "seg_vald_aran": (["data/ObychaiValdArana1313_v2.txt"], "ObychaiValdArana1313"),
+    "seg_zhaime1295": (["data/PragmatikaZhaumeII1295_v2.txt"], "PragmatikaZhaumeII1295"),
+    "seg_zhaime1301": (["data/PragmatikaZhaumeII1301_v2.txt"], "PragmatikaZhaumeII1301"),
+    "seg_gramoty_911": (["data/Gramoty911.txt"], "Gramoty911"),
+    "seg_gramoty_12": (["data/Gramoty12.txt"], "Gramoty12"),
+    "seg_usatges": (["data/Bastardas_Usatges_de_Barcelona_djvu.txt"], "UsatgesBarcelona"),
 }
 
 
-def find_file(paths):
+def find_file(paths: list[str]) -> Path | None:
     """Возвращает первый существующий путь из списка."""
     for p in paths:
         path = Path(p)
@@ -46,16 +48,63 @@ def find_file(paths):
     return None
 
 
-def compute_basic_stats(segments):
-    ids = [seg_id for seg_id, _ in segments]
-    word_lengths = [len(seg_text.split()) for _, seg_text in segments]
+def expected_unified_name(module_name: str) -> str:
+    """Строит строгое имя unified-функции для модуля segmenters.seg_*."""
+    if not module_name.startswith("seg_"):
+        raise ValueError(f"Ожидался модуль вида seg_*, получено: {module_name}")
+    return f"segment_{module_name[4:]}_unified"
 
-    seen = set()
-    duplicates = []
-    for seg_id in ids:
-        if seg_id in seen and seg_id not in duplicates:
-            duplicates.append(seg_id)
-        seen.add(seg_id)
+
+def validate_segments(segments: object, source_name: str) -> list[tuple[str, str]]:
+    """
+    Проверяет строгий контракт list[tuple[str, str]] и уникальность id.
+    Возвращает тот же список в типизированном виде.
+    """
+    if not isinstance(segments, list):
+        raise TypeError(f"[{source_name}] Возвращён не list: {type(segments).__name__}")
+
+    validated: list[tuple[str, str]] = []
+    seen_ids: set[str] = set()
+    duplicate_ids: list[str] = []
+
+    for i, item in enumerate(segments):
+        if not isinstance(item, tuple) or len(item) != 2:
+            raise TypeError(
+                f"[{source_name}] Элемент #{i}: ожидался tuple(str, str), "
+                f"получено {type(item).__name__}: {item!r}"
+            )
+
+        seg_id, seg_text = item
+        if not isinstance(seg_id, str):
+            raise TypeError(
+                f"[{source_name}] Элемент #{i}: seg_id должен быть str, "
+                f"получено {type(seg_id).__name__}: {seg_id!r}"
+            )
+        if not isinstance(seg_text, str):
+            raise TypeError(
+                f"[{source_name}] Элемент #{i} ({seg_id!r}): seg_text должен быть str, "
+                f"получено {type(seg_text).__name__}: {seg_text!r}"
+            )
+
+        if seg_id in seen_ids:
+            duplicate_ids.append(seg_id)
+        else:
+            seen_ids.add(seg_id)
+
+        validated.append((seg_id, seg_text))
+
+    if duplicate_ids:
+        preview = ", ".join(repr(x) for x in duplicate_ids[:10])
+        more = " ..." if len(duplicate_ids) > 10 else ""
+        raise ValueError(
+            f"[{source_name}] Найдены дубликаты segment_id ({len(duplicate_ids)}): {preview}{more}"
+        )
+
+    return validated
+
+
+def compute_basic_stats(segments: list[tuple[str, str]]) -> dict[str, float | int]:
+    word_lengths = [len(seg_text.split()) for _, seg_text in segments]
 
     if word_lengths:
         min_words = min(word_lengths)
@@ -66,75 +115,72 @@ def compute_basic_stats(segments):
 
     return {
         "count": len(segments),
-        "duplicates": duplicates,
         "min_words": min_words,
         "median_words": median_words,
         "max_words": max_words,
     }
 
 
-def test_unified_function(module_name, possible_paths, source_name):
-    """Импортирует unified функцию и запускает её."""
+def test_unified_function(
+    module_name: str,
+    possible_paths: list[str],
+    source_name: str,
+) -> tuple[bool, str, list[tuple[str, str]] | None, dict[str, float | int] | None]:
+    """Импортирует строго ожидаемую unified-функцию и запускает её."""
     try:
-        module = __import__(f'segmenters.{module_name}', fromlist=[module_name])
-        func_name = f'segment_{module_name[4:]}_unified' if module_name.startswith('seg_') else f'{module_name}_unified'
+        module = importlib.import_module(f"segmenters.{module_name}")
+        func_name = expected_unified_name(module_name)
+
         if not hasattr(module, func_name):
-            if module_name == 'seg_gramoty_stable_merged':
-                func_name = 'segment_gramoty_unified'
-            else:
-                candidates = [attr for attr in dir(module) if 'unified' in attr and callable(getattr(module, attr))]
-                if not candidates:
-                    return False, "Функция unified не найдена", None, None
-                func_name = candidates[0]
+            raise AttributeError(
+                f"[{source_name}] В модуле segmenters.{module_name} "
+                f"не найдена обязательная функция {func_name}"
+            )
+
         func = getattr(module, func_name)
+        if not callable(func):
+            raise TypeError(
+                f"[{source_name}] Атрибут {func_name} существует, но не является вызываемым"
+            )
 
         path = find_file(possible_paths)
         if path is None:
-            return False, f"Файл не найден: {possible_paths}", None, None
+            raise FileNotFoundError(f"[{source_name}] Файл не найден: {possible_paths}")
 
         segments = func(str(path), source_name)
+        validated = validate_segments(segments, source_name)
+        stats = compute_basic_stats(validated)
+        return True, "Успех", validated, stats
 
-        if not isinstance(segments, list):
-            return False, f"Возвращён не список: {type(segments)}", None, None
-        for seg in segments:
-            if not (isinstance(seg, tuple) and len(seg) == 2 and isinstance(seg[0], str) and isinstance(seg[1], str)):
-                return False, f"Некорректный элемент: {seg}", None, None
-
-        stats = compute_basic_stats(segments)
-        return True, "Успех", segments, stats
-
-    except Exception as e:
-        return False, f"Ошибка: {e}\n{traceback.format_exc()}", None, None
+    except Exception as exc:
+        return False, f"Ошибка: {exc}\n{traceback.format_exc()}", None, None
 
 
-def main():
-    print("=== Тестирование унифицированных функций сегментеров ===\n")
-    sys.path.insert(0, '.')
+def main() -> None:
+    print("=== Строгое тестирование unified-сегментеров ===\n")
+    sys.path.insert(0, ".")
 
-    results = []
+    results: list[tuple[str, bool, str]] = []
+
     for module_name, (possible_paths, source_name) in TEST_CONFIG.items():
         print(f"Тестируем {module_name}...")
         success, msg, segments, stats = test_unified_function(module_name, possible_paths, source_name)
         status = "✓" if success else "✗"
         print(f"  {status} {msg}")
 
-        if success and segments is not None:
+        if success and segments is not None and stats is not None:
             print(f"    Количество сегментов: {stats['count']}")
             print(
                 f"    Длины в словах: min={stats['min_words']}, "
                 f"median={stats['median_words']}, max={stats['max_words']}"
             )
-            if stats["duplicates"]:
-                preview = ", ".join(repr(x) for x in stats["duplicates"][:10])
-                more = " ..." if len(stats["duplicates"]) > 10 else ""
-                print(f"    WARNING: дубликаты id ({len(stats['duplicates'])}): {preview}{more}")
 
             if segments:
                 print("    Примеры первых трёх сегментов:")
-                for i, (seg_id, seg_text) in enumerate(segments[:3]):
+                for i, (seg_id, seg_text) in enumerate(segments[:3], 1):
                     preview = seg_text[:100] + "..." if len(seg_text) > 100 else seg_text
-                    preview = preview.replace('\n', '\\n')
-                    print(f"      {i+1}. id={seg_id!r} text={preview!r}")
+                    preview = preview.replace("\n", "\\n")
+                    print(f"      {i}. id={seg_id!r} text={preview!r}")
             else:
                 print("    Нет сегментов")
 
@@ -152,10 +198,10 @@ def main():
             if not success:
                 print(f"- {module_name}: {msg}")
         sys.exit(1)
-    else:
-        print("\nВсе тесты пройдены.")
-        sys.exit(0)
+
+    print("\nВсе тесты пройдены.")
+    sys.exit(0)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

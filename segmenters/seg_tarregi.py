@@ -17,12 +17,14 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import List, Tuple, Optional
+from typing import List, Optional, Tuple
+
+from .seg_common import read_source_file, validate_segments
 
 
 # Маркеры статей в этом OCR:
 # [1] [2] ... [12] [13) [14] (15] [17) [22} (25]
-_ARTICLE_MARKER_RE = re.compile(r'(?m)^[\s\u3000\.,;:·•\-–—]*[\[\(](\d{1,2})[\]\)\}]\s*')
+_ARTICLE_MARKER_RE = re.compile(r"(?m)^[\s\u3000\.,;:·•\-–—]*[\[\(](\d{1,2})[\]\)\}]\s*")
 
 _START_MARKERS = [
     "Noverint universi quod nos",
@@ -36,17 +38,17 @@ _END_MARKERS = [
 ]
 
 _SKIP_LINE_PATTERNS = [
-    re.compile(r'^\s*\d{1,4}\s*$'),                    # page number
-    re.compile(r'^\s*[a-z]\s+B\b'),                    # editorial note like "a B"
-    re.compile(r'^\s*[a-z]\s+C\b'),
-    re.compile(r'^\s*[a-z]\s+D\b'),
-    re.compile(r'^\s*\d+\.'),                          # scholarly footnotes/comments
+    re.compile(r"^\s*\d{1,4}\s*$"),   # page number
+    re.compile(r"^\s*[a-z]\s+B\b"),   # editorial note like "a B"
+    re.compile(r"^\s*[a-z]\s+C\b"),
+    re.compile(r"^\s*[a-z]\s+D\b"),
+    re.compile(r"^\s*\d+\."),         # scholarly footnotes/comments
 ]
 
-_MULTI_SPACE_RE = re.compile(r'\s+')
-_HYPHEN_BREAK_RE = re.compile(r'(\w)[\-\u00ad]\s+(\w)')
-_LEADING_MARKER_RE = re.compile(r'^[\s\.,;:·•\-–—]*[\[\(]\d{1,2}[\]\)\}]\s*')
-_INLINE_FOOTNOTE_RE = re.compile(r'(?<=\w)\s*\d+\s*[•º°*]?(?=[\s\.,;:])')
+_MULTI_SPACE_RE = re.compile(r"\s+")
+_HYPHEN_BREAK_RE = re.compile(r"(\w)[\-\u00ad]\s+(\w)")
+_LEADING_MARKER_RE = re.compile(r"^[\s\.,;:·•\-–—]*[\[\(]\d{1,2}[\]\)\}]\s*")
+_INLINE_FOOTNOTE_RE = re.compile(r"(?<=\w)\s*\d+\s*[•º°*]?(?=[\s\.,;:])")
 
 
 def clean_text(text: str) -> str:
@@ -104,7 +106,7 @@ def _normalize_block(block: str) -> str:
     text = _LEADING_MARKER_RE.sub("", text)
     text = _INLINE_FOOTNOTE_RE.sub("", text)
     text = clean_text(text)
-    text = re.sub(r'^[\]\)\}.,:;\-\s]+', '', text)
+    text = re.sub(r"^[\]\)\}.,:;\-\s]+", "", text)
     return clean_text(text)
 
 
@@ -158,45 +160,25 @@ def segment_tarregi(
 def segment_tarregi_unified(source_file, source_name):
     """
     Unified Tarregi segmenter.
-    """
-    from .seg_common import read_source_file, validate_segments
 
+    Parameters
+    ----------
+    source_file : str | Path
+        Path to the source file.
+    source_name : str
+        Canonical source name, e.g. "ObychaiTarregi1290E".
+
+    Returns
+    -------
+    list[tuple[str, str]]
+        List of (segment_id, segment_text) pairs.
+    """
     text = read_source_file(source_file)
     raw_segments = segment_tarregi(text, source_name=source_name, min_words=8)
     return validate_segments(raw_segments, source_name)
 
 
-def analyze_and_save(
-    text: str,
-    output_file: str,
-    source_name: str = "ObychaiTarregi1290E",
-) -> List[Tuple[str, str]]:
-    print("=" * 80)
-    print("COSTUMS DE TARREGA (1290 / PRIVILEGE OF 1242) - SEGMENTATION")
-    print("=" * 80)
-
-    segments = segment_tarregi(text, source_name=source_name, min_words=8)
-
-    print(f"Found segments: {len(segments)}")
-    if segments:
-        print(f"First id: {segments[0][0]}")
-        print(f"Last id:  {segments[-1][0]}")
-
-    with open(output_file, "w", encoding="utf-8") as f:
-        f.write(f"Total segments: {len(segments)}\n")
-        f.write("=" * 80 + "\n\n")
-        for seg_id, seg_text in segments:
-            f.write("=" * 80 + "\n")
-            f.write(f"{seg_id}\n")
-            f.write("=" * 80 + "\n")
-            f.write(seg_text)
-            f.write("\n\n")
-
-    print(f"\nResults saved to {output_file}")
-    return segments
-
-
-def main():
+def main() -> None:
     candidates = [
         Path("data/ObychaiTarregi1290E_v2.txt"),
         Path("ObychaiTarregi1290E_v2.txt"),
@@ -205,28 +187,21 @@ def main():
 
     src = next((p for p in candidates if p.exists()), None)
     if src is None:
-        print("Source file not found. Tried:")
-        for p in candidates:
-            print(f"  - {p}")
+        print("Source file not found.")
         raise SystemExit(1)
 
-    print(f"Processing {src}...")
-    text = src.read_text(encoding="utf-8", errors="replace")
-    segs = analyze_and_save(
-        text,
-        output_file="tarregi_segmented.txt",
-        source_name="ObychaiTarregi1290E",
-    )
+    segs = segment_tarregi_unified(src, "ObychaiTarregi1290E")
+    print(f"ObychaiTarregi1290E: {len(segs)} segments")
 
     if segs:
-        print("\nFirst 5 segments:")
-        for sid, stxt in segs[:5]:
-            preview = stxt[:120] + "..." if len(stxt) > 120 else stxt
+        print("First 3 segments:")
+        for sid, txt in segs[:3]:
+            preview = txt[:120] + "..." if len(txt) > 120 else txt
             print(f"  {sid}: {preview}")
 
-        print("\nLast 5 segments:")
-        for sid, stxt in segs[-5:]:
-            preview = stxt[:120] + "..." if len(stxt) > 120 else stxt
+        print("Last 3 segments:")
+        for sid, txt in segs[-3:]:
+            preview = txt[:120] + "..." if len(txt) > 120 else txt
             print(f"  {sid}: {preview}")
 
 

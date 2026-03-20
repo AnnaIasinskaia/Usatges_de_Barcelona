@@ -3,8 +3,7 @@
 """
 Segmenter for Recognoverunt Proceres (Barcelona privilege, 1283).
 
-Новая версия ориентирована на RecognovrentProceres12831284_v2.txt.
-Главный принцип:
+Рабочий контракт:
 - выход только в формате (id, text)
 - id в едином стиле: RecognovrentProceres12831284_ArtN
 - опора на латинскую нумерацию [I]...[CXVI]
@@ -15,21 +14,27 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import List, Tuple, Dict
+from typing import Dict, List, Tuple
+
+from .seg_common import read_source_file, validate_segments
 
 
-_ARTICLE_RE = re.compile(r'(?m)^[\s\u3000]*\[([IVXLCDM]+)\]\s*')
-_MULTI_SPACE_RE = re.compile(r'\s+')
-_HYPHEN_BREAK_RE = re.compile(r'(\w)-\s+(\w)')
-_PAGE_RE = re.compile(r'^\s*\d{1,4}\s*$')
-_FOOTNOTE_RE = re.compile(r'^\s*\d+\s+[A-ZÁÉÍÓÚ]')
+_ARTICLE_RE = re.compile(r"(?m)^[\s\u3000]*\[([IVXLCDM]+)\]\s*")
+_MULTI_SPACE_RE = re.compile(r"\s+")
+_HYPHEN_BREAK_RE = re.compile(r"(\w)-\s+(\w)")
+_PAGE_RE = re.compile(r"^\s*\d{1,4}\s*$")
+_FOOTNOTE_RE = re.compile(r"^\s*\d+\s+[A-ZÁÉÍÓÚ]")
 
 _ROMAN_VALUES: Dict[str, int] = {
-    "I": 1, "V": 5, "X": 10, "L": 50,
-    "C": 100, "D": 500, "M": 1000,
+    "I": 1,
+    "V": 5,
+    "X": 10,
+    "L": 50,
+    "C": 100,
+    "D": 500,
+    "M": 1000,
 }
 
-# Упрощённые словари для отделения латинского блока от каталонского
 _LATIN_WORDS = {
     "quod", "item", "si", "nisi", "cum", "vel", "et", "non", "que", "est", "sunt",
     "potest", "quilibet", "aliquis", "dominus", "uxor", "mariti", "bona", "civis",
@@ -86,11 +91,10 @@ def _line_scores(line: str) -> Tuple[int, int]:
     latin = sum(w in _LATIN_WORDS for w in words)
     catalan = sum(w in _CATALAN_WORDS for w in words)
 
-    # Арабские пункты вроде "41." почти всегда каталонская колонка
-    if re.match(r'^\d+\.', line.strip()):
+    if re.match(r"^\d+\.", line.strip()):
         catalan += 3
 
-    if any(ch in line.lower() for ch in ['ç', '·']):
+    if any(ch in line.lower() for ch in ["ç", "·"]):
         catalan += 1
 
     return latin, catalan
@@ -98,7 +102,7 @@ def _line_scores(line: str) -> Tuple[int, int]:
 
 def _is_catalan_line(line: str) -> bool:
     latin, catalan = _line_scores(line)
-    return catalan >= latin + 2 or re.match(r'^\d+\.', line.strip()) is not None
+    return catalan >= latin + 2 or re.match(r"^\d+\.", line.strip()) is not None
 
 
 def _drop_global_noise(lines: List[str]) -> List[str]:
@@ -131,8 +135,7 @@ def _extract_latin_preamble(text: str) -> str:
             continue
         latin_lines.append(s)
 
-    text = clean_text(" ".join(latin_lines))
-    return text
+    return clean_text(" ".join(latin_lines))
 
 
 def _extract_latin_from_block(block: str) -> str:
@@ -140,7 +143,7 @@ def _extract_latin_from_block(block: str) -> str:
     Берёт один блок между [ROMAN]-маркерами и оставляет только латинскую часть.
     Как только началась каталонская колонка/перевод, обрываем блок.
     """
-    block = re.sub(r'^\s*\[[IVXLCDM]+\]\s*', '', block, flags=re.IGNORECASE)
+    block = re.sub(r"^\s*\[[IVXLCDM]+\]\s*", "", block, flags=re.IGNORECASE)
     lines = _drop_global_noise(block.splitlines())
 
     kept: List[str] = []
@@ -150,24 +153,20 @@ def _extract_latin_from_block(block: str) -> str:
         kept.append(s)
 
     text = clean_text(" ".join(kept))
-    text = re.sub(r'\bCap\.\s*[IVXLCDM]+\.*\s*$', '', text, flags=re.IGNORECASE)
-    text = clean_text(text)
-    return text
+    text = re.sub(r"\bCap\.\s*[IVXLCDM]+\.*\s*$", "", text, flags=re.IGNORECASE)
+    return clean_text(text)
 
 
-def segment_privileges(text: str, source_name: str, debug: bool = False) -> List[Tuple[str, str]]:
+def segment_privileges(text: str, source_name: str = "", debug: bool = False) -> List[Tuple[str, str]]:
     """
-    Новая сегментация Recognoverunt Proceres.
+    Segment Recognoverunt Proceres into preamble + numbered Latin articles.
 
-    IDs:
-      RecognovrentProceres12831284_Art0   -> латинская преамбула
-      RecognovrentProceres12831284_Art1   -> [I]
-      ...
-      RecognovrentProceres12831284_Art116 -> [CXVI]
+    Возвращает
+    ----------
+    list[tuple[str, str]]
+        Список сегментов в формате (segment_id, segment_text).
     """
-    text = text.replace("\r\n", "\n").replace("\r", "\n")
     matches = list(_ARTICLE_RE.finditer(text))
-
     if not matches:
         return []
 
@@ -175,111 +174,76 @@ def segment_privileges(text: str, source_name: str, debug: bool = False) -> List
 
     preamble = _extract_latin_preamble(text)
     if preamble:
-        segments.append((f"{source_name}_Art0", preamble))
+        prefix = source_name or "RecognovrentProceres12831284"
+        segments.append((f"{prefix}_Preamble", preamble))
 
-    for idx, m in enumerate(matches):
-        roman = m.group(1).upper()
-        art_no = roman_to_int(roman)
+    prefix = source_name or "RecognovrentProceres12831284"
 
-        start = m.start()
-        end = matches[idx + 1].start() if idx + 1 < len(matches) else len(text)
+    for i, match in enumerate(matches):
+        roman = match.group(1).upper()
+        art_num = roman_to_int(roman)
+
+        start = match.start()
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
         block = text[start:end]
 
-        chapter_text = _extract_latin_from_block(block)
-        if not chapter_text:
+        latin_text = _extract_latin_from_block(block)
+        if not latin_text:
             continue
 
-        segments.append((f"{source_name}_Art{art_no}", chapter_text))
+        seg_id = f"{prefix}_Art{art_num}"
+        segments.append((seg_id, latin_text))
 
-        if debug and art_no <= 5:
-            print(f"Art{art_no}: {chapter_text[:120]}")
+        if debug and len(segments) <= 10:
+            print(f"{seg_id}: {latin_text[:100]}")
 
     return segments
 
 
-def analyze_and_save(
-    text: str,
-    output_file: str,
-    source_name: str = "RecognovrentProceres12831284",
-) -> List[Tuple[str, str]]:
-    print("=" * 80)
-    print("RECOGNOVERUNT PROCERES (1283) - CHAPTER SEGMENTATION")
-    print("=" * 80)
-
-    chapters = segment_privileges(text, source_name=source_name, debug=False)
-
-    print(f"\nFound: {len(chapters)} segments")
-    if chapters:
-        print(f"First id: {chapters[0][0]}")
-        print(f"Last id:  {chapters[-1][0]}")
-
-    from collections import Counter
-    ids = [cid for cid, _ in chapters]
-    duplicates = [(n, c) for n, c in Counter(ids).items() if c > 1]
-
-    if duplicates:
-        print(f"\nDuplicates: {len(duplicates)}")
-        for num, count in sorted(duplicates)[:5]:
-            print(f"  {num}: {count} times")
-    else:
-        print("\nNo duplicates")
-
-    with open(output_file, 'w', encoding='utf-8') as f:
-        f.write(f"Total chapters: {len(chapters)}\n")
-        f.write("=" * 80 + "\n\n")
-        for chapter_id, chapter_text in chapters:
-            f.write("=" * 80 + "\n")
-            f.write(f"{chapter_id}\n")
-            f.write("=" * 80 + "\n")
-            f.write(chapter_text)
-            f.write("\n\n")
-
-    print(f"\nResults saved to {output_file}")
-    return chapters
-
-
 def segment_privileges_unified(source_file, source_name):
     """
-    Unified-сегментация Privileges.
-    """
-    from .seg_common import read_source_file, validate_segments
+    Unified segmenter for Recognoverunt Proceres.
 
+    Parameters
+    ----------
+    source_file : str | Path
+        Path to the source file.
+    source_name : str
+        Canonical source name, e.g. "RecognovrentProceres12831284".
+
+    Returns
+    -------
+    list[tuple[str, str]]
+        List of (segment_id, segment_text) pairs.
+    """
     text = read_source_file(source_file)
     raw_segments = segment_privileges(text, source_name=source_name, debug=False)
     return validate_segments(raw_segments, source_name)
 
 
-def main():
+def main() -> None:
     candidates = [
-        Path('data/RecognovrentProceres12831284_v2.txt'),
-        Path('RecognovrentProceres12831284_v2.txt'),
-        Path('/mnt/data/RecognovrentProceres12831284_v2.txt'),
+        Path("data/RecognovrentProceres12831284_v2.txt"),
+        Path("RecognovrentProceres12831284_v2.txt"),
+        Path("/mnt/data/RecognovrentProceres12831284_v2.txt"),
     ]
-
-    file_path = next((p for p in candidates if p.exists()), None)
-    if file_path is None:
-        print("Error: source file not found. Tried:")
-        for p in candidates:
-            print(f"  - {p}")
+    src = next((p for p in candidates if p.exists()), None)
+    if src is None:
+        print("Source file not found.")
         raise SystemExit(1)
 
-    print(f"Processing {file_path}...")
-    text = file_path.read_text(encoding='utf-8', errors='replace')
-    docs = analyze_and_save(
-        text,
-        output_file='privileges_segmented.txt',
-        source_name='RecognovrentProceres12831284',
-    )
+    segs = segment_privileges_unified(src, "RecognovrentProceres12831284")
+    print(f"RecognovrentProceres12831284: {len(segs)} segments")
 
-    if docs:
-        print("\nFirst 5 segments:")
-        for sid, txt in docs[:5]:
+    if segs:
+        print("First 3 segments:")
+        for sid, txt in segs[:3]:
             print(f"  {sid}: {txt[:120]}")
 
-        print("\nLast 5 segments:")
-        for sid, txt in docs[-5:]:
+        print("Last 3 segments:")
+        for sid, txt in segs[-3:]:
             print(f"  {sid}: {txt[:120]}")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

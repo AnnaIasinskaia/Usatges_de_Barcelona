@@ -6,9 +6,14 @@ Usatges de Barcelona segmenter (Bastardas edition).
 
 Парсер Bastardas: 125 основных глав + до 20 адвентивных из аппендиксов A-D.
 """
+
+from __future__ import annotations
+
 import re
 from pathlib import Path
 from typing import List, Tuple
+
+from .seg_common import read_source_file, validate_segments
 
 
 # =====================================================================
@@ -104,7 +109,7 @@ def _extract_latin_portion(lines) -> str:
 
 
 def _fix_split_headers(text: str) -> str:
-    """Fix OCR line-splits: '106\\n(us. 127)' -> '106 (us. 127)'."""
+    """Fix OCR line-splits: '106\n(us. 127)' -> '106 (us. 127)'."""
     return re.sub(
         r'^(\d{1,3})\s*\n+\s*(\(us\.)',
         r'\1 \2',
@@ -275,7 +280,7 @@ def _parse_appendix_usatges(text: str) -> List[Tuple[str, str]]:
 
 
 # =====================================================================
-#  Entry point
+#  Entry points
 # =====================================================================
 
 def segment_usatges(text: str) -> List[Tuple[str, str]]:
@@ -284,70 +289,65 @@ def segment_usatges(text: str) -> List[Tuple[str, str]]:
     125 основных обычаев + до 20 адвентивных из аппендиксов A-D.
     """
     segments = segment_usatges_bastardas(text)
-    main_count = len(segments)
-
     appendix_segments = _parse_appendix_usatges(text)
 
-    existing_ids = {seg[0] for seg in segments}
-    added = 0
+    existing_ids = {seg_id for seg_id, _ in segments}
     for seg_id, seg_text in appendix_segments:
         if seg_id not in existing_ids:
             segments.append((seg_id, seg_text))
             existing_ids.add(seg_id)
-            added += 1
 
-    print(f"✓ Bastardas: {main_count} основных + {added} из аппендиксов = {len(segments)} всего")
     return segments
 
 
-# =====================================================================
-#  Test / Debug
-# =====================================================================
-
-def segment_usatges_unified(
-    source_file,
-    source_name
-):
+def segment_usatges_unified(source_file, source_name):
     """
     Унифицированная функция сегментации для Usatges de Barcelona.
-    Соответствует контракту из INTERFACE.md.
 
     Параметры
     ---------
-    source_file : str или Path
-        Путь к файлу с текстом (формат .txt или .docx).
+    source_file : str | Path
+        Путь к файлу с текстом источника.
     source_name : str
-        Имя источника (например, "UsatgesBarcelona").
-    min_words : int, optional
-        Минимальное количество слов в сегменте (по умолчанию 10).
-    max_words : int, optional
-        Максимальное количество слов в сегменте (по умолчанию 150).
+        Имя источника.
 
     Возвращает
     ----------
     List[Tuple[str, str]]
         Список сегментов в формате (segment_id, segment_text).
     """
-    from .seg_common import read_source_file, apply_word_limits, validate_segments
     text = read_source_file(source_file)
     raw_segments = segment_usatges(text)
-    # Применяем ограничения по словам
-    # Валидация
     return validate_segments(raw_segments, source_name)
+
+
+def main() -> None:
+    candidates = [
+        Path("data/Bastardas_Usatges_de_Barcelona_djvu.txt"),
+        Path("data/Bastardas Usatges de Barcelona_djvu.txt"),
+        Path("Bastardas_Usatges_de_Barcelona_djvu.txt"),
+        Path("/mnt/data/Bastardas_Usatges_de_Barcelona_djvu.txt"),
+    ]
+
+    src = next((p for p in candidates if p.exists()), None)
+    if src is None:
+        print("Source file not found.")
+        raise SystemExit(1)
+
+    segments = segment_usatges_unified(src, "UsatgesBarcelona")
+    print(f"UsatgesBarcelona: {len(segments)} segments")
+
+    if segments:
+        print("First 3 segments:")
+        for seg_id, seg_text in segments[:3]:
+            preview = seg_text[:120] + "..." if len(seg_text) > 120 else seg_text
+            print(f"  {seg_id}: {preview}")
+
+        print("Last 3 segments:")
+        for seg_id, seg_text in segments[-3:]:
+            preview = seg_text[:120] + "..." if len(seg_text) > 120 else seg_text
+            print(f"  {seg_id}: {preview}")
+
+
 if __name__ == "__main__":
-    test_file = Path("data/Bastardas Usatges de Barcelona_djvu.txt")
-    if test_file.exists():
-        text = test_file.read_text(encoding="utf-8", errors="replace")
-        segments = segment_usatges(text)
-
-        print(f"\n=== First 5 segments ===")
-        for seg_id, seg_text in segments[:5]:
-            print(f"\n{seg_id}:")
-            print(f"  {seg_text[:120]}...")
-
-        print(f"\n=== Last 5 segments ===")
-        for seg_id, seg_text in segments[-5:]:
-            print(f"\n{seg_id}:")
-            print(f"  {seg_text[:120]}...")
-    else:
-        print(f"Test file not found: {test_file}")
+    main()

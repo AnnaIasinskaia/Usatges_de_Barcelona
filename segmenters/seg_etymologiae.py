@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """Segmenter for Isidori Hispalensis Episcopi Etymologiarum."""
 
 from __future__ import annotations
@@ -6,7 +8,7 @@ import re
 from pathlib import Path
 from typing import List, Tuple
 
-from .seg_common import clean_text, validate_segments, read_source_file
+from .seg_common import clean_text, read_source_file, validate_segments
 
 
 # В этом OCR-файле структура очень чистая:
@@ -107,7 +109,6 @@ def segment_etymologiae(text: str, source_name: str) -> List[Tuple[str, str]]:
         if not block:
             continue
 
-        # Обычно сразу после Caput идёт отдельной строкой uppercase title.
         lines = [ln.rstrip() for ln in block.splitlines()]
         lines = [ln for ln in lines if ln.strip()]
 
@@ -134,41 +135,48 @@ def segment_etymologiae(text: str, source_name: str) -> List[Tuple[str, str]]:
 
 def segment_etymologiae_unified(source_file, source_name):
     """
-    Унифицированная сегментация Isidori Etymologiae.
-    Сегментер сам читает файл и возвращает list[(id, text)].
+    Unified segmenter for Isidori Etymologiae.
+
+    Parameters
+    ----------
+    source_file : str | Path
+        Path to the source file.
+    source_name : str
+        Canonical source name, e.g. "Etymologiae".
+
+    Returns
+    -------
+    list[tuple[str, str]]
+        List of (segment_id, segment_text) pairs.
     """
     text = read_source_file(source_file)
-    raw_segments = segment_etymologiae(text, source_name)
-    return validate_segments(raw_segments, source_name)
+    return segment_etymologiae(text, source_name)
+
+
+def main() -> None:
+    candidates = [
+        Path("data/Isidori_Hispalensis_Episcopi_Etymologiarum_v2.txt"),
+        Path("Isidori_Hispalensis_Episcopi_Etymologiarum_v2.txt"),
+        Path("/mnt/data/Isidori_Hispalensis_Episcopi_Etymologiarum_v2.txt"),
+    ]
+
+    src = next((p for p in candidates if p.exists()), None)
+    if src is None:
+        print("Source file not found.")
+        raise SystemExit(1)
+
+    segs = segment_etymologiae_unified(src, "Etymologiae")
+    print(f"Etymologiae: {len(segs)} segments")
+
+    if segs:
+        print("First 3 segments:")
+        for sid, txt in segs[:3]:
+            print(f"  {sid}: {txt[:120]}")
+
+        print("Last 3 segments:")
+        for sid, txt in segs[-3:]:
+            print(f"  {sid}: {txt[:120]}")
 
 
 if __name__ == "__main__":
-    candidates = [
-        Path("data/Isidori_Hispalensis_Episcopi_Etymologiarum_v2.txt"),
-        Path("data/Isidori Hispalensis Episcopi Etymologiarum.docx"),
-        Path("Isidori_Hispalensis_Episcopi_Etymologiarum_v2.txt"),
-    ]
-
-    p = next((x for x in candidates if x.exists()), None)
-    if p is None:
-        print("Not found. Expected one of:")
-        for c in candidates:
-            print(f"  - {c}")
-        raise SystemExit(1)
-
-    text = read_source_file(p)
-    segs = segment_etymologiae(text, "Etymologiae")
-
-    print(f"Etymologiae: {len(segs)} segments")
-    print("Expected structural unit: one segment per Caput")
-    print()
-
-    if segs:
-        print("First 8 segments:")
-        for sid, txt in segs[:8]:
-            print(f"  {sid}: {txt[:160]}")
-        print()
-
-        print("Last 8 segments:")
-        for sid, txt in segs[-8:]:
-            print(f"  {sid}: {txt[:160]}")
+    main()

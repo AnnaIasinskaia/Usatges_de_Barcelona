@@ -4,7 +4,7 @@
 """
 config_unified.py
 
-Новая схема конфига для unified pipeline:
+Конфиг для unified pipeline.
 - CORPORA: одна точка правды по source_name -> path/display/color
 - сегментеры самодостаточные, поэтому конфиг НЕ управляет сегментацией
 - стороны графа и направления сопоставления задаются через experiment
@@ -199,7 +199,6 @@ EXPERIMENTS = {
             "threshold": 0.08,
             "top_k_per_left": 3,
         },
-        "filters": {},
         "model": dict(MODEL_DEFAULTS),
         "alignment": {
             "enabled": False,
@@ -244,7 +243,6 @@ EXPERIMENTS = {
             "threshold": 0.08,
             "top_k_per_left": None,
         },
-        "filters": {},
         "model": dict(MODEL_DEFAULTS),
         "alignment": {
             "enabled": True,
@@ -297,13 +295,6 @@ EXPERIMENTS = {
         "candidate_selection": {
             "threshold": 0.08,
             "top_k_per_left": 5,
-        },
-        "filters": {
-            "right_not_before_by_left": {
-                # пример:
-                # "ExceptPetri": 1100,
-                # "UsatgesBarcelona": 1060,
-            }
         },
         "model": dict(MODEL_DEFAULTS, final_threshold=0.12),
         "alignment": {

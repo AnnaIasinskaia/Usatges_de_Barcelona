@@ -17,11 +17,13 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import List, Tuple, Dict
+from typing import Dict, List, Tuple
+
+from .seg_common import read_source_file, validate_segments
 
 
-_ARTICLE_MARK_RE = re.compile(r'(?m)^[\s\u3000]*\[([IVXLCDM]+)\]\s*')
-_DOC_HEADER_RE = re.compile(r'^\s*37\.\s*COSTUMBRES\s+DE\s+ORTA', re.IGNORECASE)
+_ARTICLE_MARK_RE = re.compile(r"(?m)^[\s\u3000]*\[([IVXLCDM]+)\]\s*")
+_DOC_HEADER_RE = re.compile(r"^\s*37\.\s*COSTUMBRES\s+DE\s+ORTA", re.IGNORECASE)
 
 _CLOSING_MARKERS = [
     "Mandantes universis",
@@ -37,15 +39,20 @@ _SKIP_PREFIXES = [
     "Original en pergamino",
 ]
 
-_FOOTNOTE_RE = re.compile(r'^\s*\d+\s+[A-ZÁÉÍÓÚ]')
-_PAGE_RE = re.compile(r'^\s*\d{1,4}\s*$')
-_MULTI_SPACE_RE = re.compile(r'\s+')
-_HYPHEN_BREAK_RE = re.compile(r'(\w)-\s+(\w)')
+_FOOTNOTE_RE = re.compile(r"^\s*\d+\s+[A-ZÁÉÍÓÚ]")
+_PAGE_RE = re.compile(r"^\s*\d{1,4}\s*$")
+_MULTI_SPACE_RE = re.compile(r"\s+")
+_HYPHEN_BREAK_RE = re.compile(r"(\w)-\s+(\w)")
 
 
 _ROMAN_VALUES: Dict[str, int] = {
-    "I": 1, "V": 5, "X": 10, "L": 50,
-    "C": 100, "D": 500, "M": 1000,
+    "I": 1,
+    "V": 5,
+    "X": 10,
+    "L": 50,
+    "C": 100,
+    "D": 500,
+    "M": 1000,
 }
 
 
@@ -129,7 +136,6 @@ def _extract_preamble(text: str) -> str:
     preamble_raw = text[:matches[0].start()]
     lines = _drop_editorial_noise(preamble_raw.split("\n"))
 
-    # стараемся начинать именно с юридической преамбулы
     joined = "\n".join(lines)
     start_markers = [
         "Pateat universis",
@@ -162,8 +168,7 @@ def _extract_articles(text: str, source_name: str) -> List[Tuple[str, str]]:
         end = matches[idx + 1].start() if idx + 1 < len(matches) else len(text)
         block = text[start:end]
 
-        # remove the leading [ROMAN] marker
-        block = re.sub(r'^\s*\[[IVXLCDM]+\]\s*', '', block, flags=re.IGNORECASE)
+        block = re.sub(r"^\s*\[[IVXLCDM]+\]\s*", "", block, flags=re.IGNORECASE)
         lines = _drop_editorial_noise(block.split("\n"))
         article_text = clean_text(" ".join(lines))
 
@@ -203,15 +208,25 @@ def segment_orty(text: str, source_name: str, min_words: int = 10) -> List[Tuple
 def segment_orty_unified(source_file, source_name):
     """
     Unified Orty segmenter.
-    """
-    from .seg_common import read_source_file, validate_segments
 
+    Parameters
+    ----------
+    source_file : str | Path
+        Path to the source file.
+    source_name : str
+        Canonical source name, e.g. "ObychaiOrty1296".
+
+    Returns
+    -------
+    list[tuple[str, str]]
+        List of (segment_id, segment_text) pairs.
+    """
     text = read_source_file(source_file)
     raw_segments = segment_orty(text, source_name=source_name, min_words=10)
     return validate_segments(raw_segments, source_name)
 
 
-def main():
+def main() -> None:
     candidates = [
         Path("data/ObychaiOrty1296_v2.txt"),
         Path("ObychaiOrty1296_v2.txt"),
@@ -219,30 +234,20 @@ def main():
     ]
     src = next((p for p in candidates if p.exists()), None)
     if src is None:
-        print("Source file not found. Tried:")
-        for p in candidates:
-            print(f"  - {p}")
+        print("Source file not found.")
         raise SystemExit(1)
 
-    text = src.read_text(encoding="utf-8", errors="replace")
-    segs = segment_orty(text, "ObychaiOrty1296", min_words=10)
-
-    print("=" * 80)
-    print("COSTUMS D'ORTA (1296) — SEGMENTATION RESULT")
-    print("=" * 80)
-    print(f"Source: {src}")
-    print(f"Total segments: {len(segs)}")
+    segs = segment_orty_unified(src, "ObychaiOrty1296")
+    print(f"ObychaiOrty1296: {len(segs)} segments")
 
     if segs:
-        print("\nFirst 5 segments:")
-        for sid, stxt in segs[:5]:
-            preview = stxt[:120] + "..." if len(stxt) > 120 else stxt
-            print(f"  {sid}: {preview}")
+        print("First 3 segments:")
+        for sid, txt in segs[:3]:
+            print(f"  {sid}: {txt[:120]}")
 
-        print("\nLast 5 segments:")
-        for sid, stxt in segs[-5:]:
-            preview = stxt[:120] + "..." if len(stxt) > 120 else stxt
-            print(f"  {sid}: {preview}")
+        print("Last 3 segments:")
+        for sid, txt in segs[-3:]:
+            print(f"  {sid}: {txt[:120]}")
 
 
 if __name__ == "__main__":

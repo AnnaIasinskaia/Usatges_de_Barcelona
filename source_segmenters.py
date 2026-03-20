@@ -1,11 +1,12 @@
 """
 Source segmentation dispatcher.
 
-Маршрутизация только на новые *_unified сегментеры, которые работают
-с путями к файлам, а не с уже загруженными текстами.
+Маршрутизация только на unified-сегментеры.
+Строгий контракт сегментеров:
+    segment_<source>_unified(source_file, source_name) -> list[tuple[str, str]]
+где каждый элемент — пара (segment_id, segment_text).
 
-Опора — на список сегментеров и source_name из test_unified_segmenters.py.
-Никаких алиасов вроде Gramoty_I / GramotyVol1 и т.п. здесь больше нет.
+Никаких legacy-алиасов, cfg-параметров и fallback-логики здесь нет.
 """
 
 from __future__ import annotations
@@ -57,7 +58,7 @@ _SEGMENTERS: dict[str, SegmenterFunc] = {
 }
 
 
-def segment_source(source_file: str | Path, source_name: str, cfg=None) -> list[tuple[str, str]]:
+def segment_source(source_file: str | Path, source_name: str) -> list[tuple[str, str]]:
     """
     Запускает unified-сегментер по source_name.
 
@@ -66,15 +67,18 @@ def segment_source(source_file: str | Path, source_name: str, cfg=None) -> list[
     source_file : str | Path
         Путь к файлу источника.
     source_name : str
-        Имя источника из test_unified_segmenters.py.
-    cfg : Any
-        Оставлено только для совместимости со старым кодом.
-        На сегментацию больше не влияет и игнорируется.
+        Каноническое имя источника.
 
     Возвращает
     ----------
     list[tuple[str, str]]
-        Список сегментов в едином формате.
+        Список сегментов в строгом формате:
+        [(segment_id, segment_text), ...]
+
+    Исключения
+    ----------
+    KeyError
+        Если source_name не зарегистрирован в таблице сегментеров.
     """
     try:
         segmenter = _SEGMENTERS[source_name]
@@ -89,7 +93,5 @@ def segment_source(source_file: str | Path, source_name: str, cfg=None) -> list[
 
 
 def get_available_segmenters() -> dict[str, SegmenterFunc]:
-    """
-    Удобно для отладки и тестов: возвращает копию таблицы маршрутизации.
-    """
+    """Возвращает копию таблицы маршрутизации сегментеров."""
     return dict(_SEGMENTERS)

@@ -1,4 +1,5 @@
-
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """Segmenter for Exceptiones Legum Romanorum Petri (new edition / OCR v3)."""
 
 from __future__ import annotations
@@ -8,7 +9,7 @@ import unicodedata
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from .seg_common import clean_text, validate_segments, read_source_file
+from .seg_common import clean_text, read_source_file, validate_segments
 
 
 # ---------------------------------------------------------
@@ -49,16 +50,6 @@ _BOOK_PATTERNS: List[Tuple[int, re.Pattern[str]]] = [
     (5, re.compile(r"LIBER\s*Q\s*V?\s*I\s*N\s*T\s*V?S")),
 ]
 
-# В новом OCR заголовок главы почти всегда выглядит как:
-#   De...
-#   Q ui...
-#   Decodem...
-#   ... ca.xv.
-# или
-#   DequalirateTudicum. Capitulum primum.
-#
-# Регулярка здесь намеренно довольно строгая по стартовым словам:
-# это снижает ложные срабатывания в теле текста.
 _CHAPTER_HEAD_RE = re.compile(
     r"(?P<title>"
     r"(?:De|Decodem|Q\s*ui|Tudex|Ne\s+quis|Mulieres|Dos|Inter|Nuptie|Cum)"
@@ -91,16 +82,18 @@ def _is_noise_line(line: str) -> bool:
 
     low = _fold_ascii(s).lower()
 
-    if low.startswith((
-        "erstellungsdatum",
-        "titel:",
-        "ort:",
-        "verlag:",
-        "jahr:",
-        "doi /",
-        "nutzungsbedingungen",
-        "http",
-    )):
+    if low.startswith(
+        (
+            "erstellungsdatum",
+            "titel:",
+            "ort:",
+            "verlag:",
+            "jahr:",
+            "doi /",
+            "nutzungsbedingungen",
+            "http",
+        )
+    ):
         return True
 
     if "digi.ub.uni" in low:
@@ -144,14 +137,13 @@ def _roman_to_int(token: str) -> Optional[int]:
     if t in _ORDINAL_WORDS:
         return _ORDINAL_WORDS[t]
 
-    # OCR-normalизация для numeralia
     t = (
         t.replace("j", "i")
-         .replace("£", "i")
-         .replace("f", "i")
-         .replace("t", "i")
-         .replace("r", "i")
-         .replace("g", "ii")
+        .replace("£", "i")
+        .replace("f", "i")
+        .replace("t", "i")
+        .replace("r", "i")
+        .replace("g", "ii")
     )
     t = "".join(ch for ch in t if ch in "ivxlcdm")
     if not t:
@@ -210,9 +202,6 @@ def _find_chapter_starts(block: str) -> List[Tuple[int, int, str]]:
         token = (m.group("cap_word") or m.group("cap_tok") or "").strip()
         parsed = _roman_to_int(token)
 
-        # Для стабильности id используем реальный номер, если он разумный
-        # и не уходит слишком далеко от последовательности.
-        # Иначе — fallback на порядок глав в книге.
         if parsed is None or parsed < expected_next or parsed > expected_next + 5:
             cap_no = expected_next
         else:
@@ -221,7 +210,6 @@ def _find_chapter_starts(block: str) -> List[Tuple[int, int, str]]:
         starts.append((m.start(), cap_no, title))
         expected_next = cap_no + 1
 
-    # схлопываем дубли по старту / близким позициям
     collapsed: List[Tuple[int, int, str]] = []
     last_pos = -10**9
     last_no = None
@@ -253,7 +241,7 @@ def _clean_segment_text(text: str) -> str:
 
 def segment_exceptiones_petri(text: str, source_name: str) -> List[Tuple[str, str]]:
     """
-    New OCR-aware segmentation for Exceptiones Petri.
+    OCR-aware segmentation for Exceptiones Petri.
 
     Structural unit:
       one segment = one chapter inside a detected Liber.
@@ -290,7 +278,6 @@ def segment_exceptiones_petri(text: str, source_name: str) -> List[Tuple[str, st
             seg_id = f"{source_name}_L{book_no}_C{cap_no}"
             raw_segments.append((seg_id, cleaned))
 
-    # Схлопываем дубликаты id: оставляем самый полный текст.
     best: Dict[str, str] = {}
     for seg_id, seg_text in raw_segments:
         cur = best.get(seg_id)
@@ -303,44 +290,49 @@ def segment_exceptiones_petri(text: str, source_name: str) -> List[Tuple[str, st
 
 def segment_exceptiones_petri_unified(source_file, source_name):
     """
-    Unified entrypoint for the new Petri OCR.
-    Returns list[(id, text)].
+    Unified segmenter for Exceptiones Petri.
+
+    Parameters
+    ----------
+    source_file : str | Path
+        Path to the source file.
+    source_name : str
+        Canonical source name, e.g. "ExceptPetri".
+
+    Returns
+    -------
+    list[tuple[str, str]]
+        List of (segment_id, segment_text) pairs.
     """
     text = read_source_file(source_file)
     return segment_exceptiones_petri(text, source_name)
 
 
-if __name__ == "__main__":
+def main() -> None:
     candidates = [
         Path("data/Exeptionis_Legum_Romanorum_Petri_v3.txt"),
+        Path("Exeptionis_Legum_Romanorum_Petri_v3.txt"),
         Path("/mnt/data/Exeptionis_Legum_Romanorum_Petri_v3.txt"),
         Path("data/Exeptionis_Legum_Romanorum_Petri_v2.txt"),
     ]
 
-    p = next((x for x in candidates if x.exists()), None)
-    if p is None:
-        print("Not found. Expected one of:")
-        for c in candidates:
-            print(f"  - {c}")
+    src = next((p for p in candidates if p.exists()), None)
+    if src is None:
+        print("Source file not found.")
         raise SystemExit(1)
 
-    text = read_source_file(p)
-    segs = segment_exceptiones_petri(text, "ExceptPetri")
-
+    segs = segment_exceptiones_petri_unified(src, "ExceptPetri")
     print(f"ExceptPetri: {len(segs)} segments")
-    print("Expected structural unit: one segment per detected chapter within each Liber")
-    print()
 
     if segs:
-        lengths = [len(t.split()) for _, t in segs]
-        print(f"Words: min={min(lengths)}, median={sorted(lengths)[len(lengths)//2]}, max={max(lengths)}")
-        print()
+        print("First 3 segments:")
+        for sid, txt in segs[:3]:
+            print(f"  {sid}: {txt[:120]}")
 
-        print("First 10 segments:")
-        for sid, txt in segs[:10]:
-            print(f"  {sid}: {txt[:160]}")
+        print("Last 3 segments:")
+        for sid, txt in segs[-3:]:
+            print(f"  {sid}: {txt[:120]}")
 
-        print()
-        print("Last 10 segments:")
-        for sid, txt in segs[-10:]:
-            print(f"  {sid}: {txt[:160]}")
+
+if __name__ == "__main__":
+    main()

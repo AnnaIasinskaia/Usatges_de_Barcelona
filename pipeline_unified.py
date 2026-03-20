@@ -4,7 +4,8 @@
 """
 pipeline_unified.py
 
-Версия с подробным пошаговым выводом.
+Unified pipeline без legacy-поддержки форматов сегментов:
+сегментеры обязаны возвращать только list[tuple[str, str]].
 """
 
 from __future__ import annotations
@@ -13,9 +14,8 @@ import argparse
 import csv
 import importlib
 import re
-import sys
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -49,7 +49,6 @@ class Segment:
     corpus: str
     side: str
     parent_id: str
-    meta: Dict[str, Any] = field(default_factory=dict)
 
 
 class ProgressLogger:
@@ -78,32 +77,8 @@ def resolve_group_tokens(items: Sequence[str], groups: Dict[str, List[str]]) -> 
     return out
 
 
-def _normalize_segment_list(raw: Any) -> List[Tuple[str, str, Dict[str, Any]]]:
-    if raw is None:
-        return []
 
-    out: List[Tuple[str, str, Dict[str, Any]]] = []
-    for item in raw:
-        if isinstance(item, dict):
-            seg_id = str(item.get("id", ""))
-            seg_text = str(item.get("text", ""))
-            meta = dict(item.get("metadata") or {})
-            for k in ("year", "doc_no", "doc_num", "volume", "date_key"):
-                if k in item and k not in meta:
-                    meta[k] = item[k]
-            if seg_id and seg_text:
-                out.append((seg_id, seg_text, meta))
-            continue
-
-        if isinstance(item, (tuple, list)) and len(item) >= 2:
-            out.append((str(item[0]), str(item[1]), {}))
-            continue
-
-        raise TypeError(f"Unsupported segment shape: {type(item)} => {repr(item)[:200]}")
-    return out
-
-
-def segment_corpus(corpus_id: str, corpus_spec: Dict[str, Any], logger: ProgressLogger) -> List[Tuple[str, str, Dict[str, Any]]]:
+def segment_corpus(corpus_id: str, corpus_spec: Dict[str, Any], logger: ProgressLogger) -> List[Tuple[str, str]]:
     source_file = Path(corpus_spec["path"])
     logger.log(f"segment_corpus: {corpus_id} -> {source_file}")
     if not source_file.exists():
@@ -111,9 +86,27 @@ def segment_corpus(corpus_id: str, corpus_spec: Dict[str, Any], logger: Progress
 
     seg_mod = importlib.import_module("source_segmenters")
     raw = seg_mod.segment_source(source_file, corpus_id)
-    norm = _normalize_segment_list(raw)
-    logger.log(f"segment_corpus: {corpus_id} done, segments={len(norm)}")
-    return norm
+
+    if raw is None:
+        segments: List[Tuple[str, str]] = []
+    else:
+        segments = []
+        for item in raw:
+            if not (isinstance(item, (tuple, list)) and len(item) == 2):
+                raise TypeError(
+                    f"Unsupported segment shape for {corpus_id}: expected tuple(str, str), "
+                    f"got {type(item)} => {repr(item)[:200]}"
+                )
+            seg_id, seg_text = item
+            if not isinstance(seg_id, str) or not isinstance(seg_text, str):
+                raise TypeError(
+                    f"Unsupported segment value types for {corpus_id}: "
+                    f"id={type(seg_id)}, text={type(seg_text)}"
+                )
+            segments.append((seg_id, seg_text))
+
+    logger.log(f"segment_corpus: {corpus_id} done, segments={len(segments)}")
+    return segments
 
 
 def _word_tokens(text: str) -> List[str]:
@@ -163,20 +156,12 @@ def chunk_segments(base: Sequence[Segment], chunking_cfg: Dict[str, Any], logger
             chunk_text = " ".join(words[start:end])
             leaf_id = f"{seg.parent_id}__w{idx}_W{start}-{end}"
 
-            meta = dict(seg.meta)
-            meta.update({
-                "window_start": start,
-                "window_end": end,
-                "window_words": end - start,
-            })
-
             out.append(Segment(
                 id=leaf_id,
                 text=chunk_text,
                 corpus=seg.corpus,
                 side=seg.side,
                 parent_id=seg.parent_id,
-                meta=meta,
             ))
             produced += 1
             idx += 1
@@ -187,39 +172,12 @@ def chunk_segments(base: Sequence[Segment], chunking_cfg: Dict[str, Any], logger
     return out
 
 
-_YEAR_RE_1 = re.compile(r"_Y(\d{3,4})")
-_DOC_RE_1 = re.compile(r"_doc(\d+)", re.IGNORECASE)
-_DOC_RE_2 = re.compile(r"_D(\d+)")
+_DOC_RE = re.compile(r"_doc(\d+)", re.IGNORECASE)
 _NUM_RE = re.compile(r"\d+")
 
 
-def extract_charter_year(seg: Segment) -> Optional[int]:
-    for key in ("year",):
-        if seg.meta.get(key) is not None:
-            try:
-                return int(seg.meta[key])
-            except Exception:
-                pass
-    m = _YEAR_RE_1.search(seg.parent_id)
-    if m:
-        try:
-            return int(m.group(1))
-        except Exception:
-            return None
-    return None
-
-
-def extract_charter_doc_no(seg: Segment) -> Optional[int]:
-    for key in ("doc_no", "doc_num"):
-        if seg.meta.get(key) is not None:
-            try:
-                return int(seg.meta[key])
-            except Exception:
-                pass
-    m = _DOC_RE_1.search(seg.parent_id)
-    if m:
-        return int(m.group(1))
-    m = _DOC_RE_2.search(seg.parent_id)
+def extract_doc_no(seg: Segment) -> Optional[int]:
+    m = _DOC_RE.search(seg.parent_id)
     if m:
         return int(m.group(1))
     return None
@@ -232,11 +190,6 @@ def generic_numeric_sort_key(seg_id: str) -> Tuple[int, str]:
     return (10**9, str(seg_id))
 
 
-def is_charter_corpus(corpus_id: str, corpus_spec: Dict[str, Any]) -> bool:
-    kind = str(corpus_spec.get("kind", "")).lower()
-    if kind == "charters":
-        return True
-    return corpus_id in {"Gramoty911", "Gramoty12"}
 
 
 def lemmatize_segments(
@@ -395,7 +348,6 @@ def aggregate_rows(
                 "best_right_parent_id": row.get("right_parent_id", ""),
                 "left_corpus": row.get("left_corpus", ""),
                 "right_corpus": row.get("right_corpus", ""),
-                "right_year": row.get("right_year"),
                 "right_doc_no": row.get("right_doc_no"),
             }
         else:
@@ -594,10 +546,9 @@ def build_node_metadata(
         color = corpus_spec.get("color", "#999999")
         label = corpus_spec.get("display_ru", seg.corpus) if node_level == "corpus" else node_id
 
-        if is_charter_corpus(seg.corpus, corpus_spec):
-            year = extract_charter_year(seg) or 999999
-            doc_no = extract_charter_doc_no(seg) or 999999
-            sort_key = (year, doc_no, node_id)
+        doc_no = extract_doc_no(seg)
+        if doc_no is not None:
+            sort_key = (doc_no, node_id)
         else:
             sort_key = generic_numeric_sort_key(node_id)
 
@@ -687,14 +638,13 @@ def run_experiment(
         if cid not in corpora:
             raise KeyError(f"Corpus {cid} is not defined in CORPORA")
         segs = segment_corpus(cid, corpora[cid], logger)
-        for seg_id, seg_text, meta in segs:
+        for seg_id, seg_text in segs:
             base_segments.append(Segment(
                 id=seg_id,
                 text=seg_text,
                 corpus=cid,
                 side="__unassigned__",
                 parent_id=seg_id,
-                meta=meta,
             ))
     logger.log(f"base segments total: {len(base_segments)}")
 
@@ -705,12 +655,12 @@ def run_experiment(
     left_base: List[Segment] = []
     for cid in left_corpora:
         for seg in base_by_corpus[cid]:
-            left_base.append(Segment(seg.id, seg.text, seg.corpus, "left", seg.parent_id, dict(seg.meta)))
+            left_base.append(Segment(seg.id, seg.text, seg.corpus, "left", seg.parent_id))
 
     right_base: List[Segment] = []
     for cid in right_corpora:
         for seg in base_by_corpus[cid]:
-            right_base.append(Segment(seg.id, seg.text, seg.corpus, "right", seg.parent_id, dict(seg.meta)))
+            right_base.append(Segment(seg.id, seg.text, seg.corpus, "right", seg.parent_id))
 
     logger.log(f"left base={len(left_base)}, right base={len(right_base)}")
 
@@ -766,9 +716,6 @@ def run_experiment(
     left_seg_by_id = {s.id: s for s in left_leaf}
     right_seg_by_id = {s.id: s for s in right_leaf}
 
-    filters = dict(exp.get("filters") or {})
-    not_before_map = dict(filters.get("right_not_before_by_left") or {})
-
     agg = dict(exp.get("aggregation") or {})
     left_level = str(agg.get("left_node_level", "parent"))
     right_level = str(agg.get("right_node_level", "parent"))
@@ -789,12 +736,6 @@ def run_experiment(
                 break
         if not allowed:
             continue
-
-        nb = not_before_map.get(ls.corpus)
-        if nb is not None:
-            y = extract_charter_year(rs)
-            if y is not None and int(y) < int(nb):
-                continue
 
         llem = left_lemmas.get(left_id, [])
         rlem = right_lemmas.get(right_id, [])
@@ -825,8 +766,7 @@ def run_experiment(
             "right_node": node_id_for_level(rs, right_level),
             "alignment_a": al_a[:25],
             "alignment_b": al_b[:25],
-            "right_year": extract_charter_year(rs),
-            "right_doc_no": extract_charter_doc_no(rs),
+            "right_doc_no": extract_doc_no(rs),
             "left_text_snippet": ls.text[:220].replace("\n", " ").strip(),
             "right_text_snippet": rs.text[:220].replace("\n", " ").strip(),
         })
@@ -908,7 +848,6 @@ def run_experiment(
                         "best_right_leaf_id": r.get("best_right_leaf_id", ""),
                         "best_left_parent_id": r.get("best_left_parent_id", ""),
                         "best_right_parent_id": r.get("best_right_parent_id", ""),
-                        "right_year": r.get("right_year", ""),
                         "right_doc_no": r.get("right_doc_no", ""),
                     })
                     G_gexf.add_edge(u, v, **edge_attrs)

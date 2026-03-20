@@ -19,6 +19,8 @@ import re
 from pathlib import Path
 from typing import Dict, List, Tuple
 
+from .seg_common import read_source_file, validate_segments
+
 
 _DOC_HEADER_RE = re.compile(
     r'^\s*38\.\s*PRIVILEGI DIT GENERALMENT DE LA QUERIMONIA',
@@ -176,7 +178,11 @@ def _extract_articles(text: str, source_name: str) -> List[Tuple[str, str]]:
     return segments
 
 
-def segment_vald_aran(text: str, source_name: str, min_words: int = 10) -> List[Tuple[str, str]]:
+def segment_vald_aran(
+    text: str,
+    source_name: str,
+    min_words: int = 10,
+) -> List[Tuple[str, str]]:
     """
     Unified-style segmentation for Querimònia.
 
@@ -205,45 +211,25 @@ def segment_vald_aran(text: str, source_name: str, min_words: int = 10) -> List[
 def segment_vald_aran_unified(source_file, source_name):
     """
     Unified Val d'Aran segmenter.
-    """
-    from .seg_common import read_source_file, validate_segments
 
+    Parameters
+    ----------
+    source_file : str | Path
+        Path to the source file.
+    source_name : str
+        Canonical source name, e.g. "ObychaiValdArana1313".
+
+    Returns
+    -------
+    list[tuple[str, str]]
+        List of (segment_id, segment_text) pairs.
+    """
     text = read_source_file(source_file)
     raw_segments = segment_vald_aran(text, source_name=source_name, min_words=10)
     return validate_segments(raw_segments, source_name)
 
 
-def analyze_and_save(
-    text: str,
-    output_file: str,
-    source_name: str = "ObychaiValdArana1313",
-) -> List[Tuple[str, str]]:
-    print("=" * 80)
-    print("PRIVILEGI DE LA QUERIMÒNIA (VAL D'ARAN, 1313) – SEGMENTATION")
-    print("=" * 80)
-
-    segments = segment_vald_aran(text, source_name=source_name, min_words=10)
-
-    print(f"Found segments: {len(segments)}")
-    if segments:
-        print(f"First id: {segments[0][0]}")
-        print(f"Last id:  {segments[-1][0]}")
-
-    with open(output_file, "w", encoding="utf-8") as f:
-        f.write(f"Total segments: {len(segments)}\n")
-        f.write("=" * 80 + "\n\n")
-        for seg_id, seg_text in segments:
-            f.write("=" * 80 + "\n")
-            f.write(f"{seg_id}\n")
-            f.write("=" * 80 + "\n")
-            f.write(seg_text)
-            f.write("\n\n")
-
-    print(f"\nResults saved to {output_file}")
-    return segments
-
-
-def main():
+def main() -> None:
     candidates = [
         Path("data/ObychaiValdArana1313_v2.txt"),
         Path("ObychaiValdArana1313_v2.txt"),
@@ -252,28 +238,21 @@ def main():
 
     src = next((p for p in candidates if p.exists()), None)
     if src is None:
-        print("Source file not found. Tried:")
-        for p in candidates:
-            print(f"  - {p}")
+        print("Source file not found.")
         raise SystemExit(1)
 
-    print(f"Processing {src}...")
-    text = src.read_text(encoding="utf-8", errors="replace")
-    segs = analyze_and_save(
-        text,
-        output_file="vald_aran_querimonia_segmented.txt",
-        source_name="ObychaiValdArana1313",
-    )
+    segs = segment_vald_aran_unified(src, "ObychaiValdArana1313")
+    print(f"ObychaiValdArana1313: {len(segs)} segments")
 
     if segs:
-        print("\nFirst 5 segments:")
-        for sid, stxt in segs[:5]:
-            preview = stxt[:120] + "..." if len(stxt) > 120 else stxt
+        print("First 3 segments:")
+        for sid, txt in segs[:3]:
+            preview = txt[:120] + "..." if len(txt) > 120 else txt
             print(f"  {sid}: {preview}")
 
-        print("\nLast 5 segments:")
-        for sid, stxt in segs[-5:]:
-            preview = stxt[:120] + "..." if len(stxt) > 120 else stxt
+        print("Last 3 segments:")
+        for sid, txt in segs[-3:]:
+            preview = txt[:120] + "..." if len(txt) > 120 else txt
             print(f"  {sid}: {preview}")
 
 
