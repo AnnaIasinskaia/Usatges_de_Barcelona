@@ -346,10 +346,13 @@ def build_node_metadata(
         else:
             sort_key = generic_numeric_sort_key(node_id)
 
+        legend_label = corpus_spec.get("display_ru", seg.corpus)
+
         out[node_id] = {
             "side": side,
             "group": seg.corpus,
             "label": label,
+            "legend_label": legend_label,
             "color": color,
             "sort_key": sort_key,
         }

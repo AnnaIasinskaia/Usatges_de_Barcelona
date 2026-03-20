@@ -83,6 +83,8 @@ def run_render_from_csv(
     logger.log(f"  Graph rows loaded: {len(rows)} from {graph_csv_path}")
 
     logger.log("Step 2/3: Building node metadata...")
+    # build_node_metadata_from_graph_rows теперь добавляет legend_label,
+    # чтобы легенда отображала только реально присутствующие на картинке корпуса.
     left_level = str(agg_cfg.get("left_node_level", "parent"))
     right_level = str(agg_cfg.get("right_node_level", "parent"))
     left_nodes, right_nodes = build_node_metadata_from_graph_rows(

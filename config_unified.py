@@ -328,7 +328,7 @@ EXPERIMENTS = {
             "left_node_level": "parent",
             "right_node_level": "parent",
             "weight_mode": "max",
-            "min_hits": 2,
+            "min_hits": 1,
         },
         "viz": {
             "enabled": True,

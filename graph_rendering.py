@@ -87,6 +87,7 @@ def build_node_metadata_from_graph_rows(
                 "side": "left",
                 "group": left_corpus,
                 "label": label,
+                "legend_label": corpus_spec.get("display_ru", left_corpus),
                 "color": corpus_spec.get("color", "#999999"),
                 "sort_key": (left_corpus, left_node),
             }
@@ -105,6 +106,7 @@ def build_node_metadata_from_graph_rows(
                 "side": "right",
                 "group": right_corpus,
                 "label": label,
+                "legend_label": corpus_spec.get("display_ru", right_corpus),
                 "color": corpus_spec.get("color", "#999999"),
                 "sort_key": sort_key,
             }
@@ -240,15 +242,16 @@ def render_bipartite_graph(
             )
 
     legend = []
-    seen = set()
-    for n in left_list:
-        lbl = G.nodes[n].get("label", str(n))
-        col = G.nodes[n].get("color", "#999999")
-        key = (lbl, col)
-        if key in seen:
+    seen_groups = set()
+    for n in G.nodes():
+        group = G.nodes[n].get("group", "")
+        if not group or group in seen_groups:
             continue
-        legend.append(Patch(facecolor=col, label=lbl))
-        seen.add(key)
+
+        legend_label = G.nodes[n].get("legend_label", group)
+        color = G.nodes[n].get("color", "#999999")
+        legend.append(Patch(facecolor=color, label=legend_label))
+        seen_groups.add(group)
 
     if legend:
         plt.legend(
