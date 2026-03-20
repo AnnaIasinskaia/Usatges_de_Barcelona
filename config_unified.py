@@ -305,6 +305,50 @@ EXPERIMENTS = {
             "write_png": True,
         },
     },
+    "usatges_to_other_codes": {
+        "description": "Поиск заимствований: Usatges → Other_codes",
+        "graph_sides": {
+            "left": ["UsatgesBarcelona"],
+            "right": ["@CATALAN_SOURCES"],
+        },
+        "mappings": [
+            {"from": ["UsatgesBarcelona"], "to": ["@CATALAN_SOURCES"]},
+        ],
+        "chunking": {
+            "enabled": False,
+        },
+        "candidate_selection": {
+            "threshold": 0.08,
+            "top_k_per_left": None,
+        },
+        "model": dict(MODEL_DEFAULTS),
+        "logging": dict(LOGGING_DEFAULTS, scoring_progress_every=250),
+        "alignment": {
+            "enabled": True,
+        },
+        "aggregation": {
+            "left_node_level": "parent",
+            "right_node_level": "parent",
+            "weight_mode": "max",
+            "min_hits": 2,
+            "keep_best_evidence": True,
+        },
+        "viz": {
+            "enabled": True,
+            "straight_edges": True,
+            "edge_color_by": "left_corpus",
+            "label_left": True,
+            "label_right": True,
+            "top_n_edges": 30,
+        },
+        "output": {
+            "dir": OUTPUT_ROOT / "usatges_to_other_codes",
+            "write_detail_csv": True,
+            "write_graph_csv": True,
+            "write_gexf": True,
+            "write_png": True,
+        },
+    },
 
     "left_to_gramoty": {
         "description": "Поиск заимствований: (латинские источники + Usatges) → грамоты",
