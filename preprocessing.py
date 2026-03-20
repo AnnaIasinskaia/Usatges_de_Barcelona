@@ -14,7 +14,7 @@ Internal changes:
 - no pycollatinus dependency
 - local mode detection per segment
 - more conservative normalization
-- softer Latin stemming
+- softer, adaptive stemming
 - stronger OCR/apparatus filtering
 - safer handling of numbers and Roman numerals
 """
@@ -72,9 +72,8 @@ LATIN_STOPWORDS = {
     "quidem", "nil", "nichil", "inde", "unde", "ita", "idem", "apud",
 }
 
-# Intentionally narrow: only strongly Romance/Catalan signals.
 ROMANCE_FUNCTION_WORDS = {
-    "d", "l", "que", "dels", "deles", "dellas", "dels", "dones",
+    "d", "l", "que", "dels", "deles", "dellas", "dones",
     "els", "les", "los", "amb", "senyor", "senyoria", "ciutat",
     "usatge", "usatges", "monestir", "batlle", "barcelona", "casa", "vila",
 }
@@ -88,21 +87,20 @@ ROMANCE_STOPWORDS = {
 
 MIXED_STOPWORDS = LATIN_STOPWORDS | ROMANCE_STOPWORDS
 
-# Frequent OCR/apparatus markers observed in legal editions.
 APPARATUS_TOKENS = {
     "brv", "stv", "cod", "codd", "ms", "mss", "cet", "cett", "cap", "tit",
     "gl", "glos", "var", "lect", "ed", "fol", "pag", "app", "cf", "ibid",
     "uar", "uariant", "variant", "vari", "sigl",
 }
 
-# Protected words that were over-stemmed in inspection.
 PROTECTED_LATIN_WORDS = {
     "petrus", "didymus", "iesus", "maria", "monumentum", "hereditatem",
     "hereditas", "iustitia", "iustitiam", "discipulum", "operam",
     "appellatum", "nosse", "aequi", "aequum", "iudicium", "iudicio",
+    "abraham", "generationis", "narrationem", "venerunt", "fratres",
+    "tradiderunt", "dominicae", "institutis", "sacerdotes", "notitiam",
 }
 
-# Long and reliable suffixes first. Short endings are handled separately and conservatively.
 LATIN_SUFFIXES_LONG = [
     "ationibus", "itionibus",
     "ationem", "itionem", "ationis", "itionis",
@@ -218,10 +216,6 @@ def tokenize_text(text: str) -> List[str]:
 
 
 def normalize_latin(text: str) -> str:
-    """
-    Compatibility helper for inspect scripts.
-    Keeps normalization intentionally conservative.
-    """
     cleaned = basic_cleanup(text).lower()
     cleaned = cleaned.replace("j", "i")
     cleaned = cleaned.replace("æ", "ae").replace("œ", "oe")
@@ -289,10 +283,8 @@ def _is_noise_token(token: str) -> bool:
     t = _strip_accents(token.lower())
     if len(t) == 1 and t not in {"a", "e", "i", "o"}:
         return True
-
     if re.search(r"\d", t) and re.search(r"[a-z]", t):
         return True
-
     if _is_apparatus_like(t):
         return True
 
@@ -301,11 +293,8 @@ def _is_noise_token(token: str) -> bool:
         return True
     if len(t) >= 6 and vowels == 0:
         return True
-
     if re.search(r"(.)\1\1\1", t):
         return True
-
-    # Suspicious OCR clusters
     if re.search(r"(q[^u]|[bcdfghjklmnpqrstvwxz]{5,})", t):
         return True
 
@@ -313,10 +302,7 @@ def _is_noise_token(token: str) -> bool:
 
 
 def score_latin(tokens: List[str]) -> float:
-    score = 0.0
-    for tok in tokens:
-        score += _latin_shape_score(tok)
-    return score
+    return sum(_latin_shape_score(tok) for tok in tokens)
 
 
 def _is_strong_romance_token(token: str) -> bool:
@@ -325,20 +311,14 @@ def _is_strong_romance_token(token: str) -> bool:
 
     if "'" in raw:
         return True
-
-    if t in ROMANCE_FUNCTION_WORDS:
-        # Do not count it as Romance if it also looks strongly Latin.
-        if _latin_shape_score(t) < 1.0:
-            return True
-
-    # Strongly Romance/Catalan patterns only.
+    if t in ROMANCE_FUNCTION_WORDS and _latin_shape_score(t) < 1.0:
+        return True
     if re.search(r"(ny|ll)$", t):
         return True
     if re.search(r"(atge|atges|itats|itat|cio|cions|ment|ments|dret|senyor|ciutat)$", t):
         return True
     if re.search(r"^(dels|les|els|los|senyor|ciutat|barcelona|monestir|batlle)", t):
         return True
-
     return False
 
 
@@ -348,21 +328,16 @@ def score_romance(tokens: List[str]) -> float:
         raw = tok.lower()
         t = _strip_accents(raw)
 
-        # Reject obvious Latin-looking tokens from Romance scoring.
         if re.search(r"(orum|arum|ibus|que|ius|ae|am|em|um|us|is)$", t):
             continue
-
         if "'" in raw:
             score += 2.4
             continue
-
         if t in {"dels", "les", "els", "los"}:
             score += 2.0
             continue
-
         if _is_strong_romance_token(tok):
             score += 1.5
-
     return score
 
 
@@ -412,18 +387,20 @@ def detect_mode(tokens: List[str]) -> Tuple[str, Dict[str, float]]:
         "ocr_noise": round(noise, 3),
     }
 
-    # Let heavy noise win more often than before.
-    if noise >= 3.5 and noise >= latin * 0.55:
+    # Let substantial noise dominate more often, especially on uncertain segments.
+    if noise >= 3.2 and (noise >= latin * 0.50 or latin < 4.0):
         return "ocr_noise", scores
 
-    if latin >= 4.0 and latin >= romance * 1.6:
+    if latin >= 4.0 and latin >= romance * 1.8 and noise < latin * 0.60:
         return "latin", scores
 
-    if romance >= 4.0 and romance >= latin * 1.6:
+    if romance >= 4.0 and romance >= latin * 1.8 and noise < romance * 0.60:
         return "romance", scores
 
-    if latin >= 3.0 and romance >= 3.0 and max(latin, romance) / max(1.0, min(latin, romance)) <= 1.8:
-        return "mixed", scores
+    if latin >= 2.5 and romance >= 2.5:
+        ratio = max(latin, romance) / max(1.0, min(latin, romance))
+        if ratio <= 1.6:
+            return "mixed", scores
 
     if latin > romance and latin >= 2.0:
         return "latin", scores
@@ -431,7 +408,7 @@ def detect_mode(tokens: List[str]) -> Tuple[str, Dict[str, float]]:
     if romance > latin and romance >= 2.0:
         return "romance", scores
 
-    if noise >= 2.5:
+    if noise >= 2.2:
         return "ocr_noise", scores
 
     return "unknown", scores
@@ -441,10 +418,6 @@ def detect_mode(tokens: List[str]) -> Tuple[str, Dict[str, float]]:
 # =============================================================================
 
 def _normalize_uv_latin(token: str) -> str:
-    """
-    Conservative Latin u/v normalization.
-    Avoid global v->u replacement because it damages Romance material.
-    """
     t = token.lower()
     if len(t) >= 2 and t[0] == "v" and t[1] in "aeiouy":
         t = "u" + t[1:]
@@ -506,29 +479,39 @@ def normalize_tokens(tokens: List[str], mode: str) -> List[str]:
 # Stemming
 # =============================================================================
 
+def _is_healthy_stem(stem: str, original: str, min_len: int = 5, min_ratio: float = 0.66) -> bool:
+    if len(stem) < min_len:
+        return False
+    if len(stem) / max(1, len(original)) < min_ratio:
+        return False
+    if sum(ch in "aeiouy" for ch in stem) == 0:
+        return False
+    if re.search(r"(q[^u]|[bcdfghjklmnpqrstvwxz]{5,})", stem):
+        return False
+    return True
+
+
 def stem_latin(word: str) -> str:
     w = normalize_token_latin(word)
     if len(w) < 5:
         return w
-
     if w in PROTECTED_LATIN_WORDS:
         return w
 
-    # Strong, reliable reductions first.
     for ending in LATIN_SUFFIXES_LONG:
-        if w.endswith(ending):
-            stem = w[:-len(ending)]
-            if len(stem) >= 5:
-                return stem
+        if not w.endswith(ending):
+            continue
+        stem = w[:-len(ending)]
+        if _is_healthy_stem(stem, w, min_len=5, min_ratio=0.58):
+            return stem
 
-    # Moderate reductions, only for sufficiently long words.
     for ending in LATIN_SUFFIXES_SHORT:
         if not w.endswith(ending):
             continue
-        if len(w) < 7:
+        if len(w) < 8:
             continue
         stem = w[:-len(ending)]
-        if len(stem) >= 5:
+        if _is_healthy_stem(stem, w, min_len=6, min_ratio=0.72):
             return stem
 
     return w
@@ -540,16 +523,16 @@ def stem_romance(word: str) -> str:
         return w
 
     for ending in ROMANCE_SUFFIXES:
-        if w.endswith(ending):
-            stem = w[:-len(ending)]
-            if len(stem) >= 4:
-                return stem
+        if not w.endswith(ending):
+            continue
+        stem = w[:-len(ending)]
+        if _is_healthy_stem(stem, w, min_len=4, min_ratio=0.55):
+            return stem
 
-    # Very conservative plural stripping.
     for ending in ("es", "os", "as", "s"):
         if w.endswith(ending) and len(w) >= 8:
             stem = w[:-len(ending)]
-            if len(stem) >= 5:
+            if _is_healthy_stem(stem, w, min_len=5, min_ratio=0.75):
                 return stem
 
     return w
@@ -561,10 +544,11 @@ def stem_mixed(word: str) -> str:
         return w
 
     for ending in ("ments", "ment", "atge", "atges", "orum", "arum", "ibus"):
-        if w.endswith(ending):
-            stem = w[:-len(ending)]
-            if len(stem) >= 5:
-                return stem
+        if not w.endswith(ending):
+            continue
+        stem = w[:-len(ending)]
+        if _is_healthy_stem(stem, w, min_len=5, min_ratio=0.70):
+            return stem
 
     return w
 
@@ -574,11 +558,6 @@ def stem_ocr(word: str) -> str:
 
 
 class LatinLemmatizer:
-    """
-    Backward-compatible wrapper.
-    The name is kept for the existing pipeline, but internally this is a
-    mode-aware rule-based stemmer.
-    """
     def __init__(self, use_collatinus: bool = True):
         self.use_collatinus = False
         print("✓ LatinLemmatizer: mode-aware rule-based stemmer")
@@ -617,47 +596,78 @@ def _stopword_set(mode: str) -> set:
     return MIXED_STOPWORDS
 
 
-def _looks_like_garbage(token: str) -> bool:
+def _token_quality(token: str, mode: str, segment_scores: Dict[str, float] | None = None) -> float:
     if not token:
-        return True
+        return -10.0
     if token.isdigit():
-        return False
+        return 2.0
     if is_roman_numeral(token):
-        return False
-    if _is_apparatus_like(token):
-        return True
+        return 2.5
 
     stripped = token.replace("'", "")
-    if len(stripped) == 1 and stripped not in {"a", "e", "i", "o"}:
-        return True
+    quality = 0.0
 
-    if not _LETTER_RE.search(stripped):
-        return True
+    if _LETTER_RE.search(stripped):
+        quality += 1.0
+    else:
+        return -10.0
 
-    if len(stripped) <= 4 and stripped not in LATIN_FUNCTION_WORDS and stripped not in ROMANCE_FUNCTION_WORDS:
-        vowels = sum(ch in "aeiouy" for ch in stripped)
-        if vowels == 0:
-            return True
+    vowels = sum(ch in "aeiouy" for ch in stripped)
+    if vowels >= 1:
+        quality += 0.8
+    if len(stripped) >= 5 and vowels >= 2:
+        quality += 0.7
+    if len(stripped) >= 7 and vowels <= 1:
+        quality -= 2.0
 
-    if len(stripped) >= 7:
-        vowels = sum(ch in "aeiouy" for ch in stripped)
-        if vowels <= 1:
-            return True
-
+    if _is_apparatus_like(stripped):
+        quality -= 3.0
     if re.search(r"(q[^u]|[bcdfghjklmnpqrstvwxz]{5,})", stripped):
-        return True
+        quality -= 2.0
+    if re.search(r"\d", stripped) and re.search(r"[a-z]", stripped):
+        quality -= 3.0
 
-    return False
+    if mode == "latin":
+        quality += min(1.6, _latin_shape_score(stripped) * 0.45)
+    elif mode == "romance":
+        if _is_strong_romance_token(stripped):
+            quality += 1.2
+    elif mode == "mixed":
+        quality += min(0.8, _latin_shape_score(stripped) * 0.20)
+        if _is_strong_romance_token(stripped):
+            quality += 0.6
+
+    if segment_scores:
+        noise = segment_scores.get("ocr_noise", 0.0)
+        latin = segment_scores.get("latin", 0.0)
+        romance = segment_scores.get("romance", 0.0)
+
+        if noise >= 3.0 and len(stripped) <= 4:
+            quality -= 0.8
+        if noise >= 3.0 and _latin_shape_score(stripped) < 0.5 and not _is_strong_romance_token(stripped):
+            quality -= 0.6
+        if latin >= 5.0 and mode == "latin":
+            quality += 0.4
+        if romance >= 4.0 and mode == "romance":
+            quality += 0.4
+
+    return quality
 
 
-def _keep_numeric_token(token: str) -> bool:
-    # Keep likely dates, drop short apparatus-like numbers.
+def _keep_numeric_token(token: str, segment_scores: Dict[str, float] | None = None) -> bool:
     if not token.isdigit():
         return False
+
+    noise = 0.0
+    if segment_scores:
+        noise = segment_scores.get("ocr_noise", 0.0)
+
     if len(token) in {3, 4}:
         return True
     if len(token) >= 5:
         return True
+    if len(token) <= 2:
+        return noise < 1.5
     return False
 
 
@@ -666,16 +676,17 @@ def filter_tokens(
     mode: str,
     remove_stopwords: bool = True,
     min_length: int = 3,
+    segment_scores: Dict[str, float] | None = None,
 ) -> List[str]:
     result: List[str] = []
     stops = _stopword_set(mode)
 
-    for tok in tokens:
+    for idx, tok in enumerate(tokens):
         if not tok:
             continue
 
         if tok.isdigit():
-            if _keep_numeric_token(tok):
+            if _keep_numeric_token(tok, segment_scores=segment_scores):
                 result.append(tok)
             continue
 
@@ -683,13 +694,34 @@ def filter_tokens(
             result.append(tok)
             continue
 
-        if _looks_like_garbage(tok):
-            continue
-
         if len(tok) < min_length:
             continue
 
         if remove_stopwords and tok in stops:
+            continue
+
+        quality = _token_quality(tok, mode, segment_scores=segment_scores)
+
+        # Local context: nearby bad tokens make doubtful tokens more suspicious.
+        left = tokens[max(0, idx - 2):idx]
+        right = tokens[idx + 1:idx + 3]
+        neighbors = left + right
+        bad_neighbors = sum(1 for n in neighbors if _token_quality(n, mode, segment_scores=segment_scores) < 0.0)
+
+        if bad_neighbors >= 2:
+            quality -= 0.6
+        elif bad_neighbors == 1:
+            quality -= 0.25
+
+        threshold = 0.35
+        if mode == "ocr_noise":
+            threshold = 0.75
+        elif segment_scores and segment_scores.get("ocr_noise", 0.0) >= 3.0:
+            threshold = 0.65
+        elif mode == "mixed":
+            threshold = 0.45
+
+        if quality < threshold:
             continue
 
         result.append(tok)
@@ -707,15 +739,6 @@ def preprocess_segment(
     min_length: int = 3,
     return_debug: bool = False,
 ):
-    """
-    Full preprocessing pipeline for a single segment.
-
-    Default return value:
-        List[str]
-
-    Debug mode:
-        dict with mode/scores/intermediate stages
-    """
     if not isinstance(text, str) or not text.strip():
         if return_debug:
             return {
@@ -740,6 +763,7 @@ def preprocess_segment(
         mode=mode,
         remove_stopwords=remove_stopwords,
         min_length=min_length,
+        segment_scores=scores,
     )
 
     if return_debug:
@@ -760,7 +784,7 @@ if __name__ == "__main__":
     lem = LatinLemmatizer(use_collatinus=False)
     samples = [
         "ANTEQVAM VSATICI fuissent missi solebant iudices iudicare",
-        "Et los prohòmens de la ciutat de Barcelona tenguen llur dret.",
+        "Et los prohomens de la ciutat de Barcelona tenguen llur dret.",
         "Si quis hoc fecerit, in iudicio respondeat.",
         "Aqvesta carta fo feta en l'any MCCXIII.",
         "Deammonicioneluper conltringiic olmu'iivfraa plcript fectenrur",
