@@ -2,16 +2,31 @@
 # -*- coding: utf-8 -*-
 
 """
-pipeline_unified.py
+pipeline_unified_refactored.py
 
-Unified pipeline без legacy-поддержки форматов сегментов:
-сегментеры обязаны возвращать только list[tuple[str, str]].
+Новая архитектура unified pipeline:
+
+1) TF-IDF используется только как retrieval-ranking engine
+2) Никаких threshold / top_k_per_left
+3) Один понятный параметр retrieval_budget
+4) Для retrieval-кандидатов всегда считаются 4 метрики:
+   - cos_sim
+   - tesserae
+   - soft_cos
+   - sw_norm
+5) Дальше:
+   - Pareto filtering
+   - rank aggregation
+   - top_N graph edges
+
+Старая BorrowScore-логика, soft-gate и SW post-filter убраны.
 """
 
 from __future__ import annotations
 
 import argparse
 import csv
+import heapq
 import importlib
 import re
 import time
@@ -29,7 +44,6 @@ from alignment import smith_waterman
 from features import (
     build_tfidf_matrix,
     compute_idf,
-    select_tfidf_candidates,
     soft_cosine_similarity,
     tesserae_score,
 )
@@ -43,6 +57,44 @@ class Segment:
     corpus: str
     side: str
     parent_id: str
+
+
+@dataclass
+class CandidateMetrics:
+    left_leaf_id: str
+    right_leaf_id: str
+    left_parent_id: str
+    right_parent_id: str
+    left_corpus: str
+    right_corpus: str
+
+    left_node: str
+    right_node: str
+    right_doc_no: Optional[int]
+
+    cos_sim: float
+    tesserae: float
+    soft_cos: float
+    sw_score_raw: float
+    sw_norm: float
+
+    alignment_a: List[str]
+    alignment_b: List[str]
+
+    left_text_snippet: str
+    right_text_snippet: str
+
+    pareto_layer: int = 0
+    pareto_on_front: bool = False
+
+    rank_cos: int = 0
+    rank_tess: int = 0
+    rank_soft: int = 0
+    rank_sw: int = 0
+    rank_sum: int = 0
+    rank_final_position: int = 0
+
+    rank_score: float = 0.0
 
 
 class ProgressLogger:
@@ -94,23 +146,22 @@ def segment_corpus(corpus_id: str, corpus_spec: Dict[str, Any], logger: Progress
     raw = seg_mod.segment_source(source_file, corpus_id)
 
     if raw is None:
-        segments: List[Tuple[str, str]] = []
-    else:
-        segments = []
-        for item in raw:
-            if not (isinstance(item, (tuple, list)) and len(item) == 2):
-                raise TypeError(
-                    f"Unsupported segment shape for {corpus_id}: expected tuple(str, str), "
-                    f"got {type(item)} => {repr(item)[:200]}"
-                )
-            seg_id, seg_text = item
-            if not isinstance(seg_id, str) or not isinstance(seg_text, str):
-                raise TypeError(
-                    f"Unsupported segment value types for {corpus_id}: "
-                    f"id={type(seg_id)}, text={type(seg_text)}"
-                )
-            segments.append((seg_id, seg_text))
+        return []
 
+    segments: List[Tuple[str, str]] = []
+    for item in raw:
+        if not (isinstance(item, (tuple, list)) and len(item) == 2):
+            raise TypeError(
+                f"Unsupported segment shape for {corpus_id}: expected tuple(str, str), "
+                f"got {type(item)} => {repr(item)[:200]}"
+            )
+        seg_id, seg_text = item
+        if not isinstance(seg_id, str) or not isinstance(seg_text, str):
+            raise TypeError(
+                f"Unsupported segment value types for {corpus_id}: "
+                f"id={type(seg_id)}, text={type(seg_text)}"
+            )
+        segments.append((seg_id, seg_text))
     return segments
 
 
@@ -156,7 +207,6 @@ def chunk_segments(base: Sequence[Segment], chunking_cfg: Dict[str, Any], logger
                 continue
             chunk_text = " ".join(words[start:end])
             leaf_id = f"{seg.parent_id}__w{idx}_W{start}-{end}"
-
             out.append(Segment(
                 id=leaf_id,
                 text=chunk_text,
@@ -179,7 +229,6 @@ def extract_doc_no(seg: Segment) -> Optional[int]:
     if m:
         return int(m.group(1))
     return None
-
 
 
 def lemmatize_segments(
@@ -208,54 +257,195 @@ def lemmatize_segments(
     return lemmas_by_id
 
 
+def compute_sw_metrics(
+    left_lem: List[str],
+    right_lem: List[str],
+    model: Dict[str, Any],
+) -> Tuple[List[str], List[str], float, float]:
+    al_a, al_b, sw = smith_waterman(
+        left_lem,
+        right_lem,
+        match_score=int(model.get("sw_match", 2)),
+        mismatch_score=int(model.get("sw_mismatch", -1)),
+        gap_penalty=int(model.get("sw_gap", -1)),
+        lev_bonus_threshold=int(model.get("sw_lev_bonus_threshold", 2)),
+        max_seq_len=int(model.get("sw_max_seq_len", 300)),
+    )
+    sw_raw = float(sw)
+    base = max(1, min(len(left_lem), len(right_lem)))
+    sw_norm = sw_raw / float(base)
+    return al_a, al_b, sw_raw, sw_norm
 
-def compute_borrow_score(
+
+def compute_candidate_metrics(
     cos_sim: float,
     left_lem: List[str],
     right_lem: List[str],
     idf: Dict[str, float],
     model: Dict[str, Any],
-) -> Tuple[float, float, float]:
+) -> Tuple[float, float, float, float, List[str], List[str]]:
     tess = float(tesserae_score(left_lem, right_lem, idf))
-    gate_factor = float(model.get("soft_cosine_gate_factor", 0.5))
-    if cos_sim + tess * float(model["beta"]) > float(model["final_threshold"]) * gate_factor:
-        soft = float(
-            soft_cosine_similarity(
-                left_lem,
-                right_lem,
-                max_terms=int(model["soft_cosine_max_terms"]),
-            )
+    soft = float(
+        soft_cosine_similarity(
+            left_lem,
+            right_lem,
+            max_terms=int(model.get("soft_cosine_max_terms", 500)),
         )
+    )
+    al_a, al_b, sw_raw, sw_norm = compute_sw_metrics(left_lem, right_lem, model)
+    return tess, soft, sw_raw, sw_norm, al_a, al_b
+
+
+def build_allowed_right_corpora_by_left(
+    left_corpora: Sequence[str],
+    right_corpora: Sequence[str],
+    mappings: Sequence[Tuple[List[str], List[str]]],
+) -> Dict[str, set]:
+    allowed: Dict[str, set] = {lc: set() for lc in left_corpora}
+    for frm, to in mappings:
+        to_set = set(to)
+        for lc in frm:
+            if lc in allowed:
+                allowed[lc].update(to_set)
+    for lc in left_corpora:
+        if not allowed[lc]:
+            allowed[lc].update(right_corpora)
+    return allowed
+
+
+def iter_sparse_row_scores(row_vec, right_matrix):
+    sim_row = row_vec.dot(right_matrix.T)
+    if hasattr(sim_row, "tocoo"):
+        coo = sim_row.tocoo()
+        for col, val in zip(coo.col, coo.data):
+            yield int(col), float(val)
     else:
-        soft = 0.0
+        dense = sim_row.ravel().tolist()
+        for col, val in enumerate(dense):
+            if val:
+                yield col, float(val)
 
-    score = (
-        float(model["alpha"]) * float(cos_sim)
-        + float(model["beta"]) * tess
-        + float(model["gamma"]) * soft
+
+def select_retrieval_candidates_budgeted(
+    tfidf_left,
+    tfidf_right,
+    left_ids: Sequence[str],
+    right_ids: Sequence[str],
+    left_seg_by_id: Dict[str, Segment],
+    right_seg_by_id: Dict[str, Segment],
+    allowed_right_corpora_by_left: Dict[str, set],
+    retrieval_budget: int,
+    logger: ProgressLogger,
+    progress_every: Optional[int] = None,
+) -> List[Tuple[str, str, float]]:
+    if retrieval_budget <= 0:
+        raise ValueError(f"retrieval_budget must be positive, got {retrieval_budget}")
+
+    heap: List[Tuple[float, str, str]] = []
+    total_left = len(left_ids)
+
+    for idx, left_id in enumerate(left_ids, 1):
+        left_seg = left_seg_by_id[left_id]
+        allowed_right_corpora = allowed_right_corpora_by_left.get(left_seg.corpus, set())
+
+        row_vec = tfidf_left[idx - 1]
+        for right_idx, sim in iter_sparse_row_scores(row_vec, tfidf_right):
+            if sim <= 0.0:
+                continue
+            right_id = right_ids[right_idx]
+            right_seg = right_seg_by_id[right_id]
+            if right_seg.corpus not in allowed_right_corpora:
+                continue
+
+            item = (sim, left_id, right_id)
+            if len(heap) < retrieval_budget:
+                heapq.heappush(heap, item)
+            else:
+                if sim > heap[0][0]:
+                    heapq.heapreplace(heap, item)
+
+        if progress_every and (idx % max(1, int(progress_every)) == 0 or idx == total_left):
+            logger.log(f"  Retrieval progress: {idx}/{total_left}, heap={len(heap)}")
+
+    out = [(left_id, right_id, float(sim)) for sim, left_id, right_id in heap]
+    out.sort(key=lambda x: (-float(x[2]), x[0], x[1]))
+    return out
+
+
+def dominates(a: CandidateMetrics, b: CandidateMetrics) -> bool:
+    av = [a.cos_sim, a.tesserae, a.soft_cos, a.sw_norm]
+    bv = [b.cos_sim, b.tesserae, b.soft_cos, b.sw_norm]
+    ge_all = all(x >= y for x, y in zip(av, bv))
+    gt_any = any(x > y for x, y in zip(av, bv))
+    return ge_all and gt_any
+
+
+def assign_pareto_layers(rows: List[CandidateMetrics]) -> None:
+    remaining = list(range(len(rows)))
+    layer = 1
+    while remaining:
+        front: List[int] = []
+        for i in remaining:
+            dominated = False
+            for j in remaining:
+                if i == j:
+                    continue
+                if dominates(rows[j], rows[i]):
+                    dominated = True
+                    break
+            if not dominated:
+                front.append(i)
+
+        front_set = set(front)
+        for i in front:
+            rows[i].pareto_layer = layer
+            rows[i].pareto_on_front = (layer == 1)
+
+        remaining = [i for i in remaining if i not in front_set]
+        layer += 1
+
+
+def rank_desc(values: Sequence[float]) -> List[int]:
+    indexed = list(enumerate(values))
+    indexed.sort(key=lambda x: (-float(x[1]), x[0]))
+    ranks = [0] * len(values)
+    for pos, (idx, _) in enumerate(indexed, 1):
+        ranks[idx] = pos
+    return ranks
+
+
+def rank_aggregate(rows: List[CandidateMetrics]) -> None:
+    if not rows:
+        return
+
+    rank_cos = rank_desc([r.cos_sim for r in rows])
+    rank_tess = rank_desc([r.tesserae for r in rows])
+    rank_soft = rank_desc([r.soft_cos for r in rows])
+    rank_sw = rank_desc([r.sw_norm for r in rows])
+
+    for i, r in enumerate(rows):
+        r.rank_cos = rank_cos[i]
+        r.rank_tess = rank_tess[i]
+        r.rank_soft = rank_soft[i]
+        r.rank_sw = rank_sw[i]
+        r.rank_sum = r.rank_cos + r.rank_tess + r.rank_soft + r.rank_sw
+
+    order = sorted(
+        range(len(rows)),
+        key=lambda i: (
+            rows[i].rank_sum,
+            -rows[i].tesserae,
+            -rows[i].sw_norm,
+            -rows[i].soft_cos,
+            -rows[i].cos_sim,
+            rows[i].left_leaf_id,
+            rows[i].right_leaf_id,
+        )
     )
-    return score, tess, soft
 
-
-def maybe_align(
-    left_lem: List[str],
-    right_lem: List[str],
-    model: Dict[str, Any],
-    enabled: bool,
-) -> Tuple[List[str], List[str], float]:
-    if not enabled:
-        return [], [], 0.0
-
-    al_a, al_b, sw = smith_waterman(
-        left_lem,
-        right_lem,
-        match_score=int(model["sw_match"]),
-        mismatch_score=int(model["sw_mismatch"]),
-        gap_penalty=int(model["sw_gap"]),
-        lev_bonus_threshold=int(model["sw_lev_bonus_threshold"]),
-        max_seq_len=int(model["sw_max_seq_len"]),
-    )
-    return al_a, al_b, float(sw)
+    for pos, i in enumerate(order, 1):
+        rows[i].rank_final_position = pos
+        rows[i].rank_score = 1.0 / float(pos)
 
 
 def node_id_for_level(seg: Segment, level: str) -> str:
@@ -281,7 +471,8 @@ def aggregate_rows(
         left_node = str(row["left_node"])
         right_node = str(row["right_node"])
         key = (left_node, right_node)
-        score = float(row["score"])
+        rank_score = float(row["rank_score"])
+        rank_final = int(row["rank_final_position"])
 
         cur = grouped.get(key)
         if cur is None:
@@ -290,9 +481,10 @@ def aggregate_rows(
                 "right_node": right_node,
                 "left_level": left_level,
                 "right_level": right_level,
-                "weight": score,
+                "weight": rank_score,
                 "hit_count": 1,
-                "best_score": score,
+                "best_rank": rank_final,
+                "best_rank_score": rank_score,
                 "best_left_leaf_id": row.get("left_leaf_id", ""),
                 "best_right_leaf_id": row.get("right_leaf_id", ""),
                 "best_left_parent_id": row.get("left_parent_id", ""),
@@ -300,27 +492,44 @@ def aggregate_rows(
                 "left_corpus": row.get("left_corpus", ""),
                 "right_corpus": row.get("right_corpus", ""),
                 "right_doc_no": row.get("right_doc_no"),
+                "best_tesserae": row.get("tesserae", 0.0),
+                "best_soft_cos": row.get("soft_cos", 0.0),
+                "best_sw_norm": row.get("sw_norm", 0.0),
+                "best_cos_sim": row.get("cos_sim", 0.0),
+                "best_pareto_layer": row.get("pareto_layer", 0),
             }
         else:
             cur["hit_count"] += 1
             if weight_mode == "sum":
-                cur["weight"] = float(cur["weight"]) + score
+                cur["weight"] = float(cur["weight"]) + rank_score
             elif weight_mode == "max":
-                cur["weight"] = max(float(cur["weight"]), score)
+                cur["weight"] = max(float(cur["weight"]), rank_score)
             else:
                 raise ValueError(f"Unknown weight_mode: {weight_mode}")
 
-            if score > float(cur["best_score"]):
-                cur["best_score"] = score
+            if rank_final < int(cur["best_rank"]):
+                cur["best_rank"] = rank_final
+                cur["best_rank_score"] = rank_score
                 cur["best_left_leaf_id"] = row.get("left_leaf_id", "")
                 cur["best_right_leaf_id"] = row.get("right_leaf_id", "")
                 cur["best_left_parent_id"] = row.get("left_parent_id", "")
                 cur["best_right_parent_id"] = row.get("right_parent_id", "")
+                cur["best_tesserae"] = row.get("tesserae", 0.0)
+                cur["best_soft_cos"] = row.get("soft_cos", 0.0)
+                cur["best_sw_norm"] = row.get("sw_norm", 0.0)
+                cur["best_cos_sim"] = row.get("cos_sim", 0.0)
+                cur["best_pareto_layer"] = row.get("pareto_layer", 0)
 
     rows = [r for r in grouped.values() if int(r.get("hit_count", 1)) >= int(min_hits)]
-    rows.sort(key=lambda r: (-float(r["weight"]), str(r["left_node"]), str(r["right_node"])))
+    rows.sort(
+        key=lambda r: (
+            -float(r["weight"]),
+            int(r.get("best_rank", 10**9)),
+            str(r["left_node"]),
+            str(r["right_node"]),
+        )
+    )
     return rows
-
 
 
 def build_node_metadata(
@@ -377,14 +586,6 @@ def write_csv(rows: Sequence[Dict[str, Any]], path: Path) -> None:
 
 
 def _make_gexf_safe_attrs(attrs: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Приводит атрибуты узла/ребра к типам, которые умеет писать networkx.write_gexf.
-    В частности:
-    - tuple/list/dict -> строка
-    - Path -> строка
-    - None -> пустая строка
-    Простые скаляры (str/int/float/bool) оставляются как есть.
-    """
     safe: Dict[str, Any] = {}
     for key, value in attrs.items():
         if isinstance(value, (str, int, float, bool)):
@@ -394,6 +595,38 @@ def _make_gexf_safe_attrs(attrs: Dict[str, Any]) -> Dict[str, Any]:
         else:
             safe[key] = repr(value)
     return safe
+
+
+def metric_row_to_dict(r: CandidateMetrics) -> Dict[str, Any]:
+    return {
+        "left_leaf_id": r.left_leaf_id,
+        "right_leaf_id": r.right_leaf_id,
+        "left_parent_id": r.left_parent_id,
+        "right_parent_id": r.right_parent_id,
+        "left_corpus": r.left_corpus,
+        "right_corpus": r.right_corpus,
+        "left_node": r.left_node,
+        "right_node": r.right_node,
+        "right_doc_no": r.right_doc_no,
+        "cos_sim": r.cos_sim,
+        "tesserae": r.tesserae,
+        "soft_cos": r.soft_cos,
+        "sw_score_raw": r.sw_score_raw,
+        "sw_norm": r.sw_norm,
+        "alignment_a": r.alignment_a[:25],
+        "alignment_b": r.alignment_b[:25],
+        "left_text_snippet": r.left_text_snippet,
+        "right_text_snippet": r.right_text_snippet,
+        "pareto_layer": r.pareto_layer,
+        "pareto_on_front": r.pareto_on_front,
+        "rank_cos": r.rank_cos,
+        "rank_tess": r.rank_tess,
+        "rank_soft": r.rank_soft,
+        "rank_sw": r.rank_sw,
+        "rank_sum": r.rank_sum,
+        "rank_final_position": r.rank_final_position,
+        "rank_score": r.rank_score,
+    }
 
 
 def run_experiment(
@@ -420,13 +653,50 @@ def run_experiment(
     out_dir = Path(exp["output"]["dir"])
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    retrieval_cfg = dict(exp.get("retrieval") or {})
+    selection_cfg = dict(exp.get("selection") or {})
+    pareto_cfg = dict(exp.get("pareto") or {})
+    agg_cfg = dict(exp.get("aggregation") or {})
+    viz_cfg = dict(exp.get("viz") or {})
+    output_cfg = dict(exp.get("output") or {})
+    model = dict(exp.get("model") or {})
+
+    retrieval_budget = retrieval_cfg.get("budget")
+    if retrieval_budget is None:
+        raise ValueError(
+            f"Experiment '{experiment_id}' must define retrieval.budget in config_unified.py "
+            f"for the new threshold-free architecture."
+        )
+    retrieval_budget = int(retrieval_budget)
+    if retrieval_budget <= 0:
+        raise ValueError(f"retrieval.budget must be positive, got {retrieval_budget}")
+
+    graph_top_n = selection_cfg.get("graph_top_n", viz_cfg.get("top_n_edges"))
+    if graph_top_n is None:
+        raise ValueError(
+            f"Experiment '{experiment_id}' must define selection.graph_top_n "
+            f"(or viz.top_n_edges) for graph selection."
+        )
+    graph_top_n = int(graph_top_n)
+    if graph_top_n <= 0:
+        raise ValueError(f"graph_top_n must be positive, got {graph_top_n}")
+
+    pareto_keep_layers = int(pareto_cfg.get("keep_layers", 1))
+    if pareto_keep_layers <= 0:
+        raise ValueError(f"pareto.keep_layers must be positive, got {pareto_keep_layers}")
+
+    left_level = str(agg_cfg.get("left_node_level", "parent"))
+    right_level = str(agg_cfg.get("right_node_level", "parent"))
+    weight_mode = str(agg_cfg.get("weight_mode", "sum"))
+    min_hits = int(agg_cfg.get("min_hits", 1))
+
     logger.log("Step 1/7: Loading config and segmenting corpora...")
 
     left_corpora = resolve_group_tokens(exp["graph_sides"]["left"], groups)
     right_corpora = resolve_group_tokens(exp["graph_sides"]["right"], groups)
 
     mappings = exp.get("mappings") or [{"from": left_corpora, "to": right_corpora}]
-    resolved_mappings = []
+    resolved_mappings: List[Tuple[List[str], List[str]]] = []
     for m in mappings:
         frm = resolve_group_tokens(m.get("from", []), groups)
         to = resolve_group_tokens(m.get("to", []), groups)
@@ -478,7 +748,6 @@ def run_experiment(
     )
 
     logger.log("Step 3/7: Preprocessing and token reduction...")
-    model = dict(exp.get("model") or {})
     lemmatizer = LatinLemmatizer()
     min_lemma_length = int(model.get("min_lemma_length", 3))
 
@@ -504,7 +773,7 @@ def run_experiment(
     right_ids = [s.id for s in right_leaf]
     corpus_lemmas = [left_lemmas[i] for i in left_ids] + [right_lemmas[i] for i in right_ids]
 
-    logger.log("Step 4/7: Building TF-IDF features and candidate pairs...")
+    logger.log("Step 4/7: Building TF-IDF features and budgeted retrieval...")
     tfidf, vocab, term2idx = build_tfidf_matrix(
         corpus_lemmas,
         ngram_range=tuple(model.get("ngram_range", (1, 3))),
@@ -520,140 +789,121 @@ def run_experiment(
     tfidf_left = tfidf[:n_left]
     tfidf_right = tfidf[n_left:]
 
-    cand_cfg = dict(exp.get("candidate_selection") or {})
-    threshold = float(cand_cfg.get("threshold", model.get("tfidf_cosine_threshold", 0.08)))
-    top_k = cand_cfg.get("top_k_per_left")
-
-    candidates = select_tfidf_candidates(
-        tfidf_left,
-        tfidf_right,
-        left_ids=left_ids,
-        right_ids=right_ids,
-        threshold=threshold,
-        top_k_per_left=top_k,
-        progress_every=candidate_progress_every,
-        progress_callback=logger.log,
-    )
-    logger.log(f"  Candidates found: {len(candidates)} (threshold={threshold}, top_k={top_k})")
-
-    idf = compute_idf(corpus_lemmas)
-    align_enabled = bool((exp.get("alignment") or {}).get("enabled", True))
-
     left_seg_by_id = {s.id: s for s in left_leaf}
     right_seg_by_id = {s.id: s for s in right_leaf}
+    allowed_right_corpora_by_left = build_allowed_right_corpora_by_left(
+        left_corpora, right_corpora, resolved_mappings
+    )
 
-    agg = dict(exp.get("aggregation") or {})
-    left_level = str(agg.get("left_node_level", "parent"))
-    right_level = str(agg.get("right_node_level", "parent"))
+    candidates = select_retrieval_candidates_budgeted(
+        tfidf_left=tfidf_left,
+        tfidf_right=tfidf_right,
+        left_ids=left_ids,
+        right_ids=right_ids,
+        left_seg_by_id=left_seg_by_id,
+        right_seg_by_id=right_seg_by_id,
+        allowed_right_corpora_by_left=allowed_right_corpora_by_left,
+        retrieval_budget=retrieval_budget,
+        logger=logger,
+        progress_every=candidate_progress_every,
+    )
+    logger.log(f"  Retrieval done: budget={retrieval_budget}, kept={len(candidates)}")
 
-    detail_rows: List[Dict[str, Any]] = []
-    skipped_by_mapping = 0
+    idf = compute_idf(corpus_lemmas)
+
+    logger.log("Step 5/7: Computing all 4 metrics for retrieval candidates...")
+    metric_rows: List[CandidateMetrics] = []
     skipped_empty_lemmas = 0
-    rejected_by_final_threshold = 0
-    rejected_by_sw_min_score = 0
-    kept_after_scoring = 0
-
-    logger.log("Step 5/7: Computing BorrowScore and filtering candidates...")
-    logger.log(f"  Scoring start: total_candidates={len(candidates)}, alignment={align_enabled}")
 
     for idx, (left_id, right_id, cos_sim) in enumerate(candidates, 1):
-        ls = left_seg_by_id.get(left_id)
-        rs = right_seg_by_id.get(right_id)
-        if ls is None or rs is None:
-            continue
-
-        allowed = False
-        for frm, to in resolved_mappings:
-            if ls.corpus in frm and rs.corpus in to:
-                allowed = True
-                break
-        if not allowed:
-            skipped_by_mapping += 1
-            continue
-
+        ls = left_seg_by_id[left_id]
+        rs = right_seg_by_id[right_id]
         llem = left_lemmas.get(left_id, [])
         rlem = right_lemmas.get(right_id, [])
+
         if not llem or not rlem:
             skipped_empty_lemmas += 1
             continue
 
-        score, tess, soft = compute_borrow_score(float(cos_sim), llem, rlem, idf, model)
-        if score < float(model.get("final_threshold", 0.10)):
-            rejected_by_final_threshold += 1
-            continue
+        tess, soft, sw_raw, sw_norm, al_a, al_b = compute_candidate_metrics(
+            cos_sim=float(cos_sim),
+            left_lem=llem,
+            right_lem=rlem,
+            idf=idf,
+            model=model,
+        )
 
-        al_a, al_b, sw = maybe_align(llem, rlem, model, enabled=align_enabled)
-        if sw < float(model.get("sw_min_score", 0.0)):
-            rejected_by_sw_min_score += 1
-            continue
-
-        detail_rows.append({
-            "left_leaf_id": left_id,
-            "right_leaf_id": right_id,
-            "left_parent_id": ls.parent_id,
-            "right_parent_id": rs.parent_id,
-            "left_corpus": ls.corpus,
-            "right_corpus": rs.corpus,
-            "cos_sim": float(cos_sim),
-            "tesserae": float(tess),
-            "soft_cos": float(soft),
-            "score": float(score),
-            "sw_score": float(sw),
-            "left_node": node_id_for_level(ls, left_level),
-            "right_node": node_id_for_level(rs, right_level),
-            "alignment_a": al_a[:25],
-            "alignment_b": al_b[:25],
-            "right_doc_no": extract_doc_no(rs),
-            "left_text_snippet": ls.text[:220].replace("\n", " ").strip(),
-            "right_text_snippet": rs.text[:220].replace("\n", " ").strip(),
-        })
-        kept_after_scoring += 1
+        metric_rows.append(CandidateMetrics(
+            left_leaf_id=left_id,
+            right_leaf_id=right_id,
+            left_parent_id=ls.parent_id,
+            right_parent_id=rs.parent_id,
+            left_corpus=ls.corpus,
+            right_corpus=rs.corpus,
+            left_node=node_id_for_level(ls, left_level),
+            right_node=node_id_for_level(rs, right_level),
+            right_doc_no=extract_doc_no(rs),
+            cos_sim=float(cos_sim),
+            tesserae=float(tess),
+            soft_cos=float(soft),
+            sw_score_raw=float(sw_raw),
+            sw_norm=float(sw_norm),
+            alignment_a=al_a[:25],
+            alignment_b=al_b[:25],
+            left_text_snippet=ls.text[:220].replace("\n", " ").strip(),
+            right_text_snippet=rs.text[:220].replace("\n", " ").strip(),
+        ))
 
         if scoring_progress_every and (
             idx % max(1, int(scoring_progress_every)) == 0 or idx == len(candidates)
         ):
             logger.log(
-                f"  Scoring progress: {idx}/{len(candidates)}, "
-                f"kept={kept_after_scoring}, "
-                f"reject_final={rejected_by_final_threshold}, "
-                f"reject_sw={rejected_by_sw_min_score}"
+                f"  Metric progress: {idx}/{len(candidates)}, "
+                f"computed={len(metric_rows)}, skipped_empty={skipped_empty_lemmas}"
             )
 
-    detail_rows.sort(
-        key=lambda r: (
-            -float(r["score"]),
-            str(r["left_corpus"]),
-            str(r["right_corpus"]),
-            str(r["left_leaf_id"]),
-            str(r["right_leaf_id"]),
-        )
-    )
     logger.log(
-        f"  Scoring done: kept={kept_after_scoring}, "
-        f"skipped_mapping={skipped_by_mapping}, "
-        f"skipped_empty={skipped_empty_lemmas}"
-    )
-    logger.log(
-        f"  Filtering stats: rejected_final={rejected_by_final_threshold}, "
-        f"rejected_sw={rejected_by_sw_min_score}"
+        f"  Metric computation done: computed={len(metric_rows)}, skipped_empty={skipped_empty_lemmas}"
     )
 
-    logger.log("Step 6/7: Aggregating evidence and preparing graph rows...")
+    logger.log("Step 6/7: Pareto filtering and rank aggregation...")
+    assign_pareto_layers(metric_rows)
+    pareto_rows = [r for r in metric_rows if r.pareto_layer <= pareto_keep_layers]
+    rank_aggregate(pareto_rows)
+
+    pareto_rows.sort(
+        key=lambda r: (
+            r.rank_final_position,
+            r.left_corpus,
+            r.right_corpus,
+            r.left_leaf_id,
+            r.right_leaf_id,
+        )
+    )
+
+    logger.log(
+        f"  Pareto done: total={len(metric_rows)}, "
+        f"kept_layers<={pareto_keep_layers} -> {len(pareto_rows)}"
+    )
+
+    detail_rows = [metric_row_to_dict(r) for r in pareto_rows]
+
+    logger.log("Step 7/7: Aggregating graph rows and exporting outputs...")
     graph_rows = aggregate_rows(
         detail_rows,
         left_level=left_level,
         right_level=right_level,
-        weight_mode=str(agg.get("weight_mode", "max")),
-        min_hits=int(agg.get("min_hits", 1)),
+        weight_mode=weight_mode,
+        min_hits=min_hits,
     )
-    logger.log(f"  Aggregation done: detail_rows={len(detail_rows)}, graph_rows={len(graph_rows)}")
+    graph_rows = graph_rows[:graph_top_n]
+    logger.log(f"  Graph aggregation done: detail_rows={len(detail_rows)}, graph_rows={len(graph_rows)}")
 
-    logger.log("Step 7/7: Exporting graph and outputs...")
-    output_cfg = dict(exp.get("output") or {})
     if bool(output_cfg.get("write_detail_csv")):
         path = out_dir / "detail_pairs.csv"
         write_csv(detail_rows, path)
         logger.log(f"  Wrote CSV: {path.name}")
+
     if bool(output_cfg.get("write_graph_csv")):
         path = out_dir / "graph_rows.csv"
         write_csv(graph_rows, path)
@@ -673,13 +923,16 @@ def run_experiment(
             u = str(r["left_node"])
             v = str(r["right_node"])
             if u in left_meta and v in right_meta:
-                G.add_edge(u, v, weight=float(r.get("weight", 0.0)), hit_count=int(r.get("hit_count", 1)))
+                G.add_edge(
+                    u,
+                    v,
+                    weight=float(r.get("weight", 0.0)),
+                    hit_count=int(r.get("hit_count", 1)),
+                    best_rank=int(r.get("best_rank", 0)),
+                )
 
         if bool(output_cfg.get("write_gexf")):
             path = out_dir / "graph.gexf"
-
-            # Для GEXF нужен отдельный "безопасный" граф:
-            # networkx.write_gexf не принимает tuple/list/dict как значения атрибутов.
             G_gexf = nx.DiGraph()
             for nid, meta in left_meta.items():
                 G_gexf.add_node(nid, **_make_gexf_safe_attrs(meta))
@@ -692,28 +945,33 @@ def run_experiment(
                     edge_attrs = _make_gexf_safe_attrs({
                         "weight": float(r.get("weight", 0.0)),
                         "hit_count": int(r.get("hit_count", 1)),
+                        "best_rank": int(r.get("best_rank", 0)),
+                        "best_rank_score": float(r.get("best_rank_score", 0.0)),
                         "left_level": r.get("left_level", ""),
                         "right_level": r.get("right_level", ""),
                         "left_corpus": r.get("left_corpus", ""),
                         "right_corpus": r.get("right_corpus", ""),
-                        "best_score": r.get("best_score", ""),
                         "best_left_leaf_id": r.get("best_left_leaf_id", ""),
                         "best_right_leaf_id": r.get("best_right_leaf_id", ""),
                         "best_left_parent_id": r.get("best_left_parent_id", ""),
                         "best_right_parent_id": r.get("best_right_parent_id", ""),
                         "right_doc_no": r.get("right_doc_no", ""),
+                        "best_tesserae": float(r.get("best_tesserae", 0.0)),
+                        "best_soft_cos": float(r.get("best_soft_cos", 0.0)),
+                        "best_sw_norm": float(r.get("best_sw_norm", 0.0)),
+                        "best_cos_sim": float(r.get("best_cos_sim", 0.0)),
+                        "best_pareto_layer": int(r.get("best_pareto_layer", 0)),
                     })
                     G_gexf.add_edge(u, v, **edge_attrs)
 
             nx.write_gexf(G_gexf, path)
             logger.log(f"  Wrote GEXF: {path.name}")
 
-    viz_cfg = dict(exp.get("viz") or {})
     if bool(viz_cfg.get("enabled")) and bool(output_cfg.get("write_png")):
         path = out_dir / "graph.png"
         logger.log(
             f"  Rendering PNG: {path.name} "
-            f"(top_n_edges={viz_cfg.get('top_n_edges')}, total_graph_rows={len(graph_rows)})"
+            f"(top_n_edges={graph_top_n}, total_graph_rows={len(graph_rows)})"
         )
         render_bipartite_graph(
             graph_rows=graph_rows,
@@ -723,14 +981,14 @@ def run_experiment(
             straight_edges=bool(viz_cfg.get("straight_edges", True)),
             label_left=bool(viz_cfg.get("label_left", True)),
             label_right=bool(viz_cfg.get("label_right", True)),
-            top_n_edges=viz_cfg.get("top_n_edges"),
+            top_n_edges=graph_top_n,
         )
         logger.log(f"  Wrote PNG: {path.name}")
 
     logger.log("Experiment finished")
     logger.log(
         f"Summary: left_leaf={len(left_leaf)}, right_leaf={len(right_leaf)}, "
-        f"candidates={len(candidates)}, detail_rows={len(detail_rows)}, graph_rows={len(graph_rows)}"
+        f"retrieval_candidates={len(candidates)}, pareto_rows={len(detail_rows)}, graph_rows={len(graph_rows)}"
     )
     logger.log(f"Output dir: {out_dir}")
 
@@ -743,8 +1001,8 @@ def run_experiment(
         "stats": {
             "left_leaf": len(left_leaf),
             "right_leaf": len(right_leaf),
-            "candidates": len(candidates),
-            "detail_rows": len(detail_rows),
+            "retrieval_candidates": len(candidates),
+            "pareto_rows": len(detail_rows),
             "graph_rows": len(graph_rows),
         },
     }

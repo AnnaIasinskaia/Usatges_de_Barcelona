@@ -2,18 +2,30 @@
 # -*- coding: utf-8 -*-
 
 """
-config_unified.py
+config_unified_refactored.py
 
-Конфиг для unified pipeline.
+Конфиг для новой unified-архитектуры.
+
+Ключевые принципы:
 - CORPORA: одна точка правды по source_name -> path/display/color
 - сегментеры самодостаточные, поэтому конфиг НЕ управляет сегментацией
 - стороны графа и направления сопоставления задаются через experiment
-- smoke test оформлен как обычный experiment с id="test"
+- TF-IDF используется только как retrieval-ranking engine
+- retrieval управляется одним параметром budget, без threshold/top_k_per_left
+- после retrieval всегда считаются 4 метрики:
+    * cos_sim
+    * tesserae
+    * soft_cos
+    * sw_norm
+- дальше pipeline делает:
+    * Pareto filtering
+    * rank aggregation
+    * top-N selection for graph
 
-На текущем этапе конфиг разделён на несколько типов настроек:
-- MODEL_DEFAULTS: параметры вычисления сходства и BorrowScore
-- LOGGING_DEFAULTS: параметры человекочитаемого логгирования пайплайна
-- viz/output/chunking/aggregation: настройки отдельных стадий эксперимента
+На этом этапе config разделён на несколько типов настроек:
+- MODEL_DEFAULTS: только параметры препроцессинга / TF-IDF / дорогих метрик
+- LOGGING_DEFAULTS: человекочитаемое логгирование
+- retrieval / pareto / selection / aggregation / viz / output: стадии эксперимента
 """
 
 from __future__ import annotations
@@ -25,10 +37,6 @@ OUTPUT_ROOT = Path("output_unified")
 
 
 # ---------------------- Корпуса ----------------------
-
-# Ключи должны совпадать с source_name из:
-# - source_segmenters.py
-# - test_unified_segmenters.py
 
 CORPORA = {
     "CorpusJuris": {
@@ -164,51 +172,47 @@ GROUPS = {
 
 # ---------------------- Общие настройки модели ----------------------
 
-# Здесь лежат именно алгоритмические параметры.
-# Они должны влиять на candidate selection / scoring / alignment,
-# а не на формат вывода или логирование.
+# Здесь лежат только параметры препроцессинга, TF-IDF-представления
+# и дорогих similarity-метрик. BorrowScore/threshold-гейты удалены.
 MODEL_DEFAULTS = {
     "min_lemma_length": 3,
     "ngram_range": (1, 3),
     "max_df": 0.50,
     "min_df": 2,
-    "tfidf_cosine_threshold": 0.08,
-    "alpha": 0.30,
-    "beta": 0.40,
-    "gamma": 0.30,
-    "final_threshold": 0.10,
     "soft_cosine_max_terms": 500,
-
-    # Эвристика включения soft cosine:
-    # если cos_sim + beta * tess > final_threshold * soft_cosine_gate_factor,
-    # тогда считается soft cosine, иначе он пропускается как дорогой этап.
-    "soft_cosine_gate_factor": 0.50,
 
     "sw_match": 2,
     "sw_mismatch": -1,
     "sw_gap": -1,
     "sw_lev_bonus_threshold": 2,
     "sw_max_seq_len": 300,
-    "sw_min_score": 0.0,
 }
 
 
 # ---------------------- Общие настройки логгирования ----------------------
 
-# Эти параметры не меняют результат вычислений.
-# Они управляют только тем, насколько детально pipeline пишет ход исполнения.
 LOGGING_DEFAULTS = {
-    # Частота progress-логов для scoring loop.
-    # Для коротких прогонов можно ставить меньше, для длинных — больше.
     "scoring_progress_every": 1000,
-
-    # Частота progress-логов на этапе лемматизации.
-    # None отключает промежуточные сообщения.
     "lemmatize_progress_every": None,
-
-    # Частота progress-логов на этапе генерации кандидатов.
-    # None отключает промежуточные сообщения.
     "candidate_progress_every": None,
+}
+
+
+# ---------------------- Базовые блоки новой архитектуры ----------------------
+
+# retrieval.budget — не semantic threshold, а вычислительный budget на дорогую стадию.
+RETRIEVAL_DEFAULTS = {
+    "budget": 5000,
+}
+
+# Пока используем только первый Pareto-frontier.
+PARETO_DEFAULTS = {
+    "keep_layers": 1,
+}
+
+# top-N graph edges после rank aggregation и graph aggregation.
+SELECTION_DEFAULTS = {
+    "graph_top_n": 30,
 }
 
 
@@ -227,15 +231,11 @@ EXPERIMENTS = {
         "chunking": {
             "enabled": False,
         },
-        "candidate_selection": {
-            "threshold": 0.06,
-            "top_k_per_left": 3,
-        },
+        "retrieval": dict(RETRIEVAL_DEFAULTS, budget=20),
+        "pareto": dict(PARETO_DEFAULTS, keep_layers=1),
+        "selection": dict(SELECTION_DEFAULTS, graph_top_n=100),
         "model": dict(MODEL_DEFAULTS),
         "logging": dict(LOGGING_DEFAULTS, scoring_progress_every=100),
-        "alignment": {
-            "enabled": False,
-        },
         "aggregation": {
             "left_node_level": "parent",
             "right_node_level": "parent",
@@ -271,15 +271,11 @@ EXPERIMENTS = {
         "chunking": {
             "enabled": False,
         },
-        "candidate_selection": {
-            "threshold": 0.08,
-            "top_k_per_left": None,
-        },
+        "retrieval": dict(RETRIEVAL_DEFAULTS, budget=5000),
+        "pareto": dict(PARETO_DEFAULTS, keep_layers=1),
+        "selection": dict(SELECTION_DEFAULTS, graph_top_n=30),
         "model": dict(MODEL_DEFAULTS),
         "logging": dict(LOGGING_DEFAULTS, scoring_progress_every=250),
-        "alignment": {
-            "enabled": True,
-        },
         "aggregation": {
             "left_node_level": "corpus",
             "right_node_level": "parent",
@@ -302,8 +298,9 @@ EXPERIMENTS = {
             "write_png": True,
         },
     },
+
     "usatges_to_other_codes": {
-        "description": "Поиск заимствований: Usatges → Other_codes",
+        "description": "Поиск заимствований: Usatges → other codes",
         "graph_sides": {
             "left": ["UsatgesBarcelona"],
             "right": ["@CATALAN_SOURCES"],
@@ -314,15 +311,11 @@ EXPERIMENTS = {
         "chunking": {
             "enabled": False,
         },
-        "candidate_selection": {
-            "threshold": 0.08,
-            "top_k_per_left": None,
-        },
+        "retrieval": dict(RETRIEVAL_DEFAULTS, budget=5000),
+        "pareto": dict(PARETO_DEFAULTS, keep_layers=1),
+        "selection": dict(SELECTION_DEFAULTS, graph_top_n=30),
         "model": dict(MODEL_DEFAULTS),
         "logging": dict(LOGGING_DEFAULTS, scoring_progress_every=250),
-        "alignment": {
-            "enabled": True,
-        },
         "aggregation": {
             "left_node_level": "parent",
             "right_node_level": "parent",
@@ -367,18 +360,11 @@ EXPERIMENTS = {
                 "UsatgesBarcelona": {"enabled": False},
             },
         },
-        "candidate_selection": {
-            "threshold": 0.08,
-            "top_k_per_left": 5,
-        },
-        "model": dict(
-            MODEL_DEFAULTS,
-            final_threshold=0.12,
-        ),
+        "retrieval": dict(RETRIEVAL_DEFAULTS, budget=12000),
+        "pareto": dict(PARETO_DEFAULTS, keep_layers=1),
+        "selection": dict(SELECTION_DEFAULTS, graph_top_n=300),
+        "model": dict(MODEL_DEFAULTS),
         "logging": dict(LOGGING_DEFAULTS, scoring_progress_every=250),
-        "alignment": {
-            "enabled": True,
-        },
         "aggregation": {
             "left_node_level": "corpus",
             "right_node_level": "parent",
