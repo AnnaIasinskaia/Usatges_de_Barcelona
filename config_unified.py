@@ -272,7 +272,7 @@ EXPERIMENTS = {
             "enabled": False,
         },
         "retrieval": dict(RETRIEVAL_DEFAULTS, budget=5000),
-        "pareto": dict(PARETO_DEFAULTS, keep_layers=1),
+        "pareto": dict(PARETO_DEFAULTS, keep_layers=3),
         "selection": dict(SELECTION_DEFAULTS, graph_top_n=30),
         "model": dict(MODEL_DEFAULTS),
         "logging": dict(LOGGING_DEFAULTS, scoring_progress_every=250),

@@ -28,8 +28,11 @@ import argparse
 import csv
 import heapq
 import importlib
+import json
+import pickle
 import re
 import time
+from hashlib import sha256
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -107,6 +110,304 @@ class ProgressLogger:
             return
         dt = time.time() - self.t0
         print(f"[{dt:8.1f}s] {msg}", flush=True)
+
+
+
+def _json_safe(value: Any) -> Any:
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, dict):
+        return {str(k): _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    if hasattr(value, "__dict__"):
+        return _json_safe(vars(value))
+    return repr(value)
+
+
+def compute_checkpoint_fingerprint(
+    *,
+    experiment_id: str,
+    left_corpora: Sequence[str],
+    right_corpora: Sequence[str],
+    resolved_mappings: Sequence[Tuple[List[str], List[str]]],
+    chunk_cfg: Dict[str, Any],
+    model: Dict[str, Any],
+    agg_cfg: Dict[str, Any],
+    pareto_cfg: Dict[str, Any],
+    selection_cfg: Dict[str, Any],
+    viz_cfg: Dict[str, Any],
+    corpora: Dict[str, Dict[str, Any]],
+    used_corpora: Sequence[str],
+) -> str:
+    source_meta: Dict[str, Dict[str, Any]] = {}
+    for cid in used_corpora:
+        spec = corpora.get(cid, {})
+        path = Path(spec["path"])
+        stat = path.stat()
+        source_meta[cid] = {
+            "path": str(path.resolve()),
+            "size": stat.st_size,
+            "mtime_ns": stat.st_mtime_ns,
+        }
+
+    payload = {
+        "experiment_id": experiment_id,
+        "left_corpora": list(left_corpora),
+        "right_corpora": list(right_corpora),
+        "resolved_mappings": list(resolved_mappings),
+        "chunk_cfg": _json_safe(chunk_cfg),
+        "model": _json_safe(model),
+        "aggregation": _json_safe(agg_cfg),
+        "pareto": _json_safe(pareto_cfg),
+        "selection": _json_safe(selection_cfg),
+        "viz": _json_safe(viz_cfg),
+        "source_meta": source_meta,
+        "pipeline_version": "smart-checkpoints-v2-step5-partial",
+    }
+    blob = json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    return sha256(blob).hexdigest()
+
+
+class CheckpointManager:
+    def __init__(
+        self,
+        root_dir: Path,
+        fingerprint: str,
+        logger: ProgressLogger,
+        enabled: bool = True,
+        force_from_step: Optional[int] = None,
+    ):
+        self.root_dir = Path(root_dir)
+        self.root_dir.mkdir(parents=True, exist_ok=True)
+        self.fingerprint = fingerprint
+        self.logger = logger
+        self.enabled = enabled
+        self.force_from_step = force_from_step
+        self.meta_path = self.root_dir / "checkpoint_meta.json"
+
+        if self.enabled:
+            self._write_meta()
+
+    def _write_meta(self) -> None:
+        payload = {
+            "fingerprint": self.fingerprint,
+            "updated_at_epoch": time.time(),
+        }
+        self.meta_path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+    def _step_path(self, step_no: int, step_key: str) -> Path:
+        return self.root_dir / f"step_{step_no:02d}_{step_key}.pkl"
+
+    def load(self, step_no: int, step_key: str) -> Optional[Any]:
+        if not self.enabled:
+            return None
+        if self.force_from_step is not None and step_no >= int(self.force_from_step):
+            return None
+
+        path = self._step_path(step_no, step_key)
+        if not path.exists():
+            return None
+
+        try:
+            with open(path, "rb") as f:
+                payload = pickle.load(f)
+        except Exception as e:
+            self.logger.log(
+                f"  Checkpoint ignored for step {step_no} ({step_key}): "
+                f"cannot read checkpoint ({type(e).__name__}: {e})"
+            )
+            return None
+
+        if not isinstance(payload, dict):
+            self.logger.log(f"  Checkpoint ignored for step {step_no} ({step_key}): invalid payload type")
+            return None
+
+        if payload.get("fingerprint") != self.fingerprint:
+            self.logger.log(
+                f"  Checkpoint ignored for step {step_no} ({step_key}): fingerprint mismatch"
+            )
+            return None
+
+        self.logger.log(f"  Checkpoint hit: step {step_no} ({step_key})")
+        return payload.get("data")
+
+    def save(self, step_no: int, step_key: str, data: Any) -> None:
+        if not self.enabled:
+            return
+        path = self._step_path(step_no, step_key)
+        payload = {
+            "fingerprint": self.fingerprint,
+            "step_no": step_no,
+            "step_key": step_key,
+            "saved_at_epoch": time.time(),
+            "data": data,
+        }
+        with open(path, "wb") as f:
+            pickle.dump(payload, f, protocol=pickle.HIGHEST_PROTOCOL)
+        self.logger.log(f"  Checkpoint saved: step {step_no} ({step_key})")
+
+
+class Step3CorpusCheckpointManager:
+    def __init__(
+        self,
+        root_dir: Path,
+        fingerprint: Dict[str, Any],
+        logger: ProgressLogger,
+        enabled: bool = True,
+        force_from_step: Optional[int] = None,
+    ) -> None:
+        self.root_dir = root_dir
+        self.root_dir.mkdir(parents=True, exist_ok=True)
+        self.fingerprint = fingerprint
+        self.logger = logger
+        self.enabled = enabled
+        self.force_from_step = force_from_step
+
+    def _path(self, side: str, corpus_id: str) -> Path:
+        safe_corpus = re.sub(r"[^A-Za-z0-9_.-]+", "_", corpus_id)
+        safe_side = re.sub(r"[^A-Za-z0-9_.-]+", "_", side)
+        return self.root_dir / f"{safe_side}__{safe_corpus}.pkl"
+
+    def load(self, side: str, corpus_id: str) -> Optional[Dict[str, List[str]]]:
+        if not self.enabled:
+            return None
+        if self.force_from_step is not None and self.force_from_step <= 3:
+            return None
+        path = self._path(side, corpus_id)
+        if not path.exists():
+            return None
+        try:
+            with open(path, "rb") as f:
+                payload = pickle.load(f)
+        except Exception as e:
+            self.logger.log(
+                f"  Step 3 corpus checkpoint ignored ({side}/{corpus_id}): cannot read ({type(e).__name__}: {e})"
+            )
+            return None
+        if payload.get("fingerprint") != self.fingerprint:
+            self.logger.log(f"  Step 3 corpus checkpoint ignored ({side}/{corpus_id}): fingerprint mismatch")
+            return None
+        data = payload.get("data")
+        if not isinstance(data, dict):
+            self.logger.log(f"  Step 3 corpus checkpoint ignored ({side}/{corpus_id}): bad payload")
+            return None
+        self.logger.log(f"  Step 3 corpus checkpoint hit: {side}/{corpus_id}")
+        return data
+
+    def save(self, side: str, corpus_id: str, data: Dict[str, List[str]]) -> None:
+        if not self.enabled:
+            return
+        path = self._path(side, corpus_id)
+        payload = {
+            "fingerprint": self.fingerprint,
+            "side": side,
+            "corpus_id": corpus_id,
+            "data": data,
+        }
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        with open(tmp, "wb") as f:
+            pickle.dump(payload, f, protocol=pickle.HIGHEST_PROTOCOL)
+        tmp.replace(path)
+        self.logger.log(f"  Step 3 corpus checkpoint saved: {side}/{corpus_id}, segments={len(data)}")
+
+    def clear(self) -> None:
+        if not self.root_dir.exists():
+            return
+        for path in self.root_dir.glob("*.pkl"):
+            try:
+                path.unlink()
+            except Exception:
+                pass
+
+
+class Step5PartialCheckpointManager:
+    def __init__(self, root_dir: Path, fingerprint: str, logger: ProgressLogger, enabled: bool = True, force_from_step: Optional[int] = None):
+        self.root_dir = Path(root_dir)
+        self.root_dir.mkdir(parents=True, exist_ok=True)
+        self.fingerprint = fingerprint
+        self.logger = logger
+        self.enabled = enabled
+        self.force_from_step = force_from_step
+        self.meta_path = self.root_dir / "progress.json"
+
+    def _part_path(self, upto_index: int) -> Path:
+        return self.root_dir / f"part_{upto_index:08d}.pkl"
+
+    def load_progress(self) -> Optional[Dict[str, Any]]:
+        if not self.enabled:
+            return None
+        if self.force_from_step is not None and 5 >= int(self.force_from_step):
+            return None
+        if not self.meta_path.exists():
+            return None
+        try:
+            payload = json.loads(self.meta_path.read_text(encoding='utf-8'))
+        except Exception as e:
+            self.logger.log(f"  Step 5 partial checkpoint ignored: cannot read progress ({type(e).__name__}: {e})")
+            return None
+        if payload.get("fingerprint") != self.fingerprint:
+            self.logger.log("  Step 5 partial checkpoint ignored: fingerprint mismatch")
+            return None
+        return payload
+
+    def load_parts(self, upto_index: int) -> List[CandidateMetrics]:
+        rows: List[CandidateMetrics] = []
+        if not self.enabled or upto_index <= 0:
+            return rows
+        for path in sorted(self.root_dir.glob('part_*.pkl')):
+            try:
+                payload = pickle.loads(path.read_bytes())
+            except Exception as e:
+                self.logger.log(f"  Step 5 part ignored: {path.name} unreadable ({type(e).__name__}: {e})")
+                continue
+            if not isinstance(payload, dict) or payload.get('fingerprint') != self.fingerprint:
+                continue
+            part_upto = int(payload.get('upto_index', 0))
+            if part_upto > upto_index:
+                continue
+            data = payload.get('metric_rows') or []
+            rows.extend(data)
+        return rows
+
+    def save_progress(self, *, upto_index: int, part_metric_rows: List[CandidateMetrics], total_computed: int, skipped_empty_lemmas: int, total_candidates: int) -> None:
+        if not self.enabled:
+            return
+        part_payload = {
+            'fingerprint': self.fingerprint,
+            'upto_index': int(upto_index),
+            'metric_rows': list(part_metric_rows),
+            'saved_at_epoch': time.time(),
+        }
+        with open(self._part_path(int(upto_index)), 'wb') as f:
+            pickle.dump(part_payload, f, protocol=pickle.HIGHEST_PROTOCOL)
+        meta = {
+            'fingerprint': self.fingerprint,
+            'next_index': int(upto_index) + 1,
+            'last_completed_index': int(upto_index),
+            'skipped_empty_lemmas': int(skipped_empty_lemmas),
+            'total_candidates': int(total_candidates),
+            'saved_at_epoch': time.time(),
+        }
+        self.meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding='utf-8')
+        self.logger.log(
+            f"  Step 5 partial checkpoint saved: upto={upto_index}/{total_candidates}, "
+            f"computed={total_computed}, batch_saved={len(part_metric_rows)}, skipped_empty={skipped_empty_lemmas}"
+        )
+
+    def clear(self) -> None:
+        if not self.root_dir.exists():
+            return
+        for path in self.root_dir.glob('*'):
+            try:
+                path.unlink()
+            except Exception:
+                pass
 
 
 def load_config_module(module_name: str) -> Any:
@@ -231,12 +532,13 @@ def extract_doc_no(seg: Segment) -> Optional[int]:
     return None
 
 
-def lemmatize_segments(
+def lemmatize_segments_strict(
     segments: Sequence[Segment],
     lemmatizer: LatinLemmatizer,
     min_lemma_length: int,
     logger: ProgressLogger,
     label: str,
+    corpus_id: str,
     progress_every: Optional[int] = None,
 ) -> Dict[str, List[str]]:
     lemmas_by_id: Dict[str, List[str]] = {}
@@ -246,13 +548,15 @@ def lemmatize_segments(
             lem = preprocess_segment(seg.text, lemmatizer, min_length=min_lemma_length)
         except Exception as e:
             logger.log(
-                f"  Preprocessing error ({label}) seg_id={seg.id} corpus={seg.corpus}: {type(e).__name__}: {e}"
+                f"  Preprocessing fatal error ({label}) seg_id={seg.id} corpus={seg.corpus}: {type(e).__name__}: {e}"
             )
-            lem = []
+            raise RuntimeError(
+                f"Preprocessing failed for corpus={corpus_id} side={label} seg_id={seg.id}: {type(e).__name__}: {e}"
+            ) from e
         lemmas_by_id[seg.id] = lem
 
         if progress_every and idx % max(1, int(progress_every)) == 0:
-            logger.log(f"  Preprocessing progress ({label}): {idx}/{total}")
+            logger.log(f"  Preprocessing progress ({label}/{corpus_id}): {idx}/{total}")
 
     return lemmas_by_id
 
@@ -373,10 +677,18 @@ def select_retrieval_candidates_budgeted(
 
 
 def dominates(a: CandidateMetrics, b: CandidateMetrics) -> bool:
-    av = [a.cos_sim, a.tesserae, a.soft_cos, a.sw_norm]
-    bv = [b.cos_sim, b.tesserae, b.soft_cos, b.sw_norm]
-    ge_all = all(x >= y for x, y in zip(av, bv))
-    gt_any = any(x > y for x, y in zip(av, bv))
+    ge_all = (
+        a.cos_sim >= b.cos_sim
+        and a.tesserae >= b.tesserae
+        and a.soft_cos >= b.soft_cos
+        and a.sw_norm >= b.sw_norm
+    )
+    gt_any = (
+        a.cos_sim > b.cos_sim
+        or a.tesserae > b.tesserae
+        or a.soft_cos > b.soft_cos
+        or a.sw_norm > b.sw_norm
+    )
     return ge_all and gt_any
 
 
@@ -634,6 +946,8 @@ def run_experiment(
     experiment_id: str,
     verbose: bool = True,
     progress_every: Optional[int] = None,
+    use_checkpoints: bool = True,
+    force_from_step: Optional[int] = None,
 ) -> Dict[str, Any]:
     logger = ProgressLogger(enabled=verbose)
 
@@ -660,6 +974,8 @@ def run_experiment(
     viz_cfg = dict(exp.get("viz") or {})
     output_cfg = dict(exp.get("output") or {})
     model = dict(exp.get("model") or {})
+
+    checkpoint_dir = Path(output_cfg.get("dir", ".")) / "checkpoints"
 
     retrieval_budget = retrieval_cfg.get("budget")
     if retrieval_budget is None:
@@ -702,71 +1018,164 @@ def run_experiment(
         to = resolve_group_tokens(m.get("to", []), groups)
         resolved_mappings.append((frm, to))
 
-    base_segments: List[Segment] = []
     used_corpora = sorted(set(left_corpora + right_corpora))
-    segmentation_counts: Dict[str, int] = {}
+    chunk_cfg = dict(exp.get("chunking") or {})
+    checkpoint_fingerprint = compute_checkpoint_fingerprint(
+        experiment_id=experiment_id,
+        left_corpora=left_corpora,
+        right_corpora=right_corpora,
+        resolved_mappings=resolved_mappings,
+        chunk_cfg=chunk_cfg,
+        model=model,
+        agg_cfg=agg_cfg,
+        pareto_cfg=pareto_cfg,
+        selection_cfg=selection_cfg,
+        viz_cfg=viz_cfg,
+        corpora=corpora,
+        used_corpora=used_corpora,
+    )
+    checkpoints = CheckpointManager(
+        checkpoint_dir,
+        checkpoint_fingerprint,
+        logger,
+        enabled=use_checkpoints,
+        force_from_step=force_from_step,
+    )
+    if use_checkpoints:
+        logger.log(f"  Checkpoints: enabled ({checkpoint_dir})")
+    else:
+        logger.log("  Checkpoints: disabled")
 
-    for cid in used_corpora:
-        if cid not in corpora:
-            raise KeyError(f"Corpus {cid} is not defined in CORPORA")
-        segs = segment_corpus(cid, corpora[cid], logger)
-        segmentation_counts[cid] = len(segs)
-        for seg_id, seg_text in segs:
-            base_segments.append(Segment(
-                id=seg_id,
-                text=seg_text,
-                corpus=cid,
-                side="__unassigned__",
-                parent_id=seg_id,
-            ))
+    step1_data = checkpoints.load(1, "segmentation")
+    if step1_data is None:
+        base_segments: List[Segment] = []
+        segmentation_counts: Dict[str, int] = {}
 
-    base_by_corpus: Dict[str, List[Segment]] = {cid: [] for cid in used_corpora}
-    for seg in base_segments:
-        base_by_corpus[seg.corpus].append(seg)
+        for cid in used_corpora:
+            if cid not in corpora:
+                raise KeyError(f"Corpus {cid} is not defined in CORPORA")
+            segs = segment_corpus(cid, corpora[cid], logger)
+            segmentation_counts[cid] = len(segs)
+            for seg_id, seg_text in segs:
+                base_segments.append(Segment(
+                    id=seg_id,
+                    text=seg_text,
+                    corpus=cid,
+                    side="__unassigned__",
+                    parent_id=seg_id,
+                ))
 
-    left_base: List[Segment] = []
-    for cid in left_corpora:
-        for seg in base_by_corpus[cid]:
-            left_base.append(Segment(seg.id, seg.text, seg.corpus, "left", seg.parent_id))
+        base_by_corpus: Dict[str, List[Segment]] = {cid: [] for cid in used_corpora}
+        for seg in base_segments:
+            base_by_corpus[seg.corpus].append(seg)
 
-    right_base: List[Segment] = []
-    for cid in right_corpora:
-        for seg in base_by_corpus[cid]:
-            right_base.append(Segment(seg.id, seg.text, seg.corpus, "right", seg.parent_id))
+        left_base: List[Segment] = []
+        for cid in left_corpora:
+            for seg in base_by_corpus[cid]:
+                left_base.append(Segment(seg.id, seg.text, seg.corpus, "left", seg.parent_id))
+
+        right_base: List[Segment] = []
+        for cid in right_corpora:
+            for seg in base_by_corpus[cid]:
+                right_base.append(Segment(seg.id, seg.text, seg.corpus, "right", seg.parent_id))
+
+        step1_data = {
+            "segmentation_counts": segmentation_counts,
+            "left_base": left_base,
+            "right_base": right_base,
+            "used_corpora": used_corpora,
+        }
+        checkpoints.save(1, "segmentation", step1_data)
+
+    segmentation_counts = dict(step1_data["segmentation_counts"])
+    left_base = list(step1_data["left_base"])
+    right_base = list(step1_data["right_base"])
 
     seg_summary = ", ".join(f"{cid}={segmentation_counts[cid]}" for cid in used_corpora)
     logger.log(f"  Segmentation done: {seg_summary}")
-    logger.log(f"  Left base={len(left_base)}, right base={len(right_base)}, total={len(base_segments)}")
+    logger.log(f"  Left base={len(left_base)}, right base={len(right_base)}, total={len(left_base) + len(right_base)}")
 
     logger.log("Step 2/7: Chunking segments...")
-    chunk_cfg = dict(exp.get("chunking") or {})
-    left_leaf = chunk_segments(left_base, chunk_cfg, logger, "left")
-    right_leaf = chunk_segments(right_base, chunk_cfg, logger, "right")
+    step2_data = checkpoints.load(2, "chunking")
+    if step2_data is None:
+        left_leaf = chunk_segments(left_base, chunk_cfg, logger, "left")
+        right_leaf = chunk_segments(right_base, chunk_cfg, logger, "right")
+        step2_data = {
+            "left_leaf": left_leaf,
+            "right_leaf": right_leaf,
+        }
+        checkpoints.save(2, "chunking", step2_data)
+    left_leaf = list(step2_data["left_leaf"])
+    right_leaf = list(step2_data["right_leaf"])
     logger.log(
         f"  Chunking done: left {len(left_base)} -> {len(left_leaf)}, "
         f"right {len(right_base)} -> {len(right_leaf)}"
     )
 
     logger.log("Step 3/7: Preprocessing and token reduction...")
-    lemmatizer = LatinLemmatizer()
     min_lemma_length = int(model.get("min_lemma_length", 3))
+    step3_data = checkpoints.load(3, "preprocessing")
+    if step3_data is None:
+        lemmatizer = LatinLemmatizer()
+        step3_partial = Step3CorpusCheckpointManager(
+            checkpoints.root_dir / "step_03_preprocessing_parts",
+            fingerprint=checkpoints.fingerprint,
+            logger=logger,
+            enabled=checkpoints.enabled,
+            force_from_step=checkpoints.force_from_step,
+        )
+        left_lemmas: Dict[str, List[str]] = {}
+        right_lemmas: Dict[str, List[str]] = {}
 
-    left_lemmas = lemmatize_segments(
-        left_leaf,
-        lemmatizer,
-        min_lemma_length,
-        logger,
-        "left",
-        progress_every=lemmatize_progress_every,
-    )
-    right_lemmas = lemmatize_segments(
-        right_leaf,
-        lemmatizer,
-        min_lemma_length,
-        logger,
-        "right",
-        progress_every=lemmatize_progress_every,
-    )
+        left_by_corpus: Dict[str, List[Segment]] = {}
+        for seg in left_leaf:
+            left_by_corpus.setdefault(seg.corpus, []).append(seg)
+        right_by_corpus: Dict[str, List[Segment]] = {}
+        for seg in right_leaf:
+            right_by_corpus.setdefault(seg.corpus, []).append(seg)
+
+        for corpus_id in left_corpora:
+            corpus_segments = left_by_corpus.get(corpus_id, [])
+            cached = step3_partial.load("left", corpus_id)
+            if cached is None:
+                logger.log(f"  Preprocessing corpus start: left/{corpus_id}, segments={len(corpus_segments)}")
+                cached = lemmatize_segments_strict(
+                    corpus_segments,
+                    lemmatizer,
+                    min_lemma_length,
+                    logger,
+                    "left",
+                    corpus_id,
+                    progress_every=lemmatize_progress_every,
+                )
+                step3_partial.save("left", corpus_id, cached)
+            left_lemmas.update(cached)
+
+        for corpus_id in right_corpora:
+            corpus_segments = right_by_corpus.get(corpus_id, [])
+            cached = step3_partial.load("right", corpus_id)
+            if cached is None:
+                logger.log(f"  Preprocessing corpus start: right/{corpus_id}, segments={len(corpus_segments)}")
+                cached = lemmatize_segments_strict(
+                    corpus_segments,
+                    lemmatizer,
+                    min_lemma_length,
+                    logger,
+                    "right",
+                    corpus_id,
+                    progress_every=lemmatize_progress_every,
+                )
+                step3_partial.save("right", corpus_id, cached)
+            right_lemmas.update(cached)
+
+        step3_data = {
+            "left_lemmas": left_lemmas,
+            "right_lemmas": right_lemmas,
+        }
+        checkpoints.save(3, "preprocessing", step3_data)
+        step3_partial.clear()
+    left_lemmas = dict(step3_data["left_lemmas"])
+    right_lemmas = dict(step3_data["right_lemmas"])
     logger.log(f"  Preprocessing done: left={len(left_lemmas)}, right={len(right_lemmas)}")
 
     left_ids = [s.id for s in left_leaf]
@@ -774,129 +1183,216 @@ def run_experiment(
     corpus_lemmas = [left_lemmas[i] for i in left_ids] + [right_lemmas[i] for i in right_ids]
 
     logger.log("Step 4/7: Building TF-IDF features and budgeted retrieval...")
-    tfidf, vocab, term2idx = build_tfidf_matrix(
-        corpus_lemmas,
-        ngram_range=tuple(model.get("ngram_range", (1, 3))),
-        max_df=float(model.get("max_df", 0.5)),
-        min_df=int(model.get("min_df", 2)),
-    )
-    logger.log(
-        f"  TF-IDF done: docs={len(corpus_lemmas)}, "
-        f"vocab={len(vocab)}, matrix={getattr(tfidf, 'shape', None)}"
-    )
-
-    n_left = len(left_ids)
-    tfidf_left = tfidf[:n_left]
-    tfidf_right = tfidf[n_left:]
-
     left_seg_by_id = {s.id: s for s in left_leaf}
     right_seg_by_id = {s.id: s for s in right_leaf}
-    allowed_right_corpora_by_left = build_allowed_right_corpora_by_left(
-        left_corpora, right_corpora, resolved_mappings
-    )
-
-    candidates = select_retrieval_candidates_budgeted(
-        tfidf_left=tfidf_left,
-        tfidf_right=tfidf_right,
-        left_ids=left_ids,
-        right_ids=right_ids,
-        left_seg_by_id=left_seg_by_id,
-        right_seg_by_id=right_seg_by_id,
-        allowed_right_corpora_by_left=allowed_right_corpora_by_left,
-        retrieval_budget=retrieval_budget,
-        logger=logger,
-        progress_every=candidate_progress_every,
-    )
-    logger.log(f"  Retrieval done: budget={retrieval_budget}, kept={len(candidates)}")
-
-    idf = compute_idf(corpus_lemmas)
-
-    logger.log("Step 5/7: Computing all 4 metrics for retrieval candidates...")
-    metric_rows: List[CandidateMetrics] = []
-    skipped_empty_lemmas = 0
-
-    for idx, (left_id, right_id, cos_sim) in enumerate(candidates, 1):
-        ls = left_seg_by_id[left_id]
-        rs = right_seg_by_id[right_id]
-        llem = left_lemmas.get(left_id, [])
-        rlem = right_lemmas.get(right_id, [])
-
-        if not llem or not rlem:
-            skipped_empty_lemmas += 1
-            continue
-
-        tess, soft, sw_raw, sw_norm, al_a, al_b = compute_candidate_metrics(
-            cos_sim=float(cos_sim),
-            left_lem=llem,
-            right_lem=rlem,
-            idf=idf,
-            model=model,
+    step4_data = checkpoints.load(4, "retrieval")
+    if step4_data is None:
+        tfidf, vocab, term2idx = build_tfidf_matrix(
+            corpus_lemmas,
+            ngram_range=tuple(model.get("ngram_range", (1, 3))),
+            max_df=float(model.get("max_df", 0.5)),
+            min_df=int(model.get("min_df", 2)),
+        )
+        logger.log(
+            f"  TF-IDF done: docs={len(corpus_lemmas)}, "
+            f"vocab={len(vocab)}, matrix={getattr(tfidf, 'shape', None)}"
         )
 
-        metric_rows.append(CandidateMetrics(
-            left_leaf_id=left_id,
-            right_leaf_id=right_id,
-            left_parent_id=ls.parent_id,
-            right_parent_id=rs.parent_id,
-            left_corpus=ls.corpus,
-            right_corpus=rs.corpus,
-            left_node=node_id_for_level(ls, left_level),
-            right_node=node_id_for_level(rs, right_level),
-            right_doc_no=extract_doc_no(rs),
-            cos_sim=float(cos_sim),
-            tesserae=float(tess),
-            soft_cos=float(soft),
-            sw_score_raw=float(sw_raw),
-            sw_norm=float(sw_norm),
-            alignment_a=al_a[:25],
-            alignment_b=al_b[:25],
-            left_text_snippet=ls.text[:220].replace("\n", " ").strip(),
-            right_text_snippet=rs.text[:220].replace("\n", " ").strip(),
-        ))
+        n_left = len(left_ids)
+        tfidf_left = tfidf[:n_left]
+        tfidf_right = tfidf[n_left:]
 
-        if scoring_progress_every and (
-            idx % max(1, int(scoring_progress_every)) == 0 or idx == len(candidates)
-        ):
-            logger.log(
-                f"  Metric progress: {idx}/{len(candidates)}, "
-                f"computed={len(metric_rows)}, skipped_empty={skipped_empty_lemmas}"
-            )
+        allowed_right_corpora_by_left = build_allowed_right_corpora_by_left(
+            left_corpora, right_corpora, resolved_mappings
+        )
 
+        candidates = select_retrieval_candidates_budgeted(
+            tfidf_left=tfidf_left,
+            tfidf_right=tfidf_right,
+            left_ids=left_ids,
+            right_ids=right_ids,
+            left_seg_by_id=left_seg_by_id,
+            right_seg_by_id=right_seg_by_id,
+            allowed_right_corpora_by_left=allowed_right_corpora_by_left,
+            retrieval_budget=retrieval_budget,
+            logger=logger,
+            progress_every=candidate_progress_every,
+        )
+        idf = compute_idf(corpus_lemmas)
+        step4_data = {
+            "candidates": candidates,
+            "idf": idf,
+        }
+        checkpoints.save(4, "retrieval", step4_data)
+    candidates = list(step4_data["candidates"])
+    idf = dict(step4_data["idf"])
+    logger.log(f"  Retrieval done: budget={retrieval_budget}, kept={len(candidates)}")
+
+    logger.log("Step 5/7: Computing all 4 metrics for retrieval candidates...")
+    step5_data = checkpoints.load(5, "metrics")
+    if step5_data is None:
+        partial_dir = checkpoints.root_dir / "step_05_metrics_parts"
+        step5_partial = Step5PartialCheckpointManager(
+            root_dir=partial_dir,
+            fingerprint=checkpoints.fingerprint,
+            logger=logger,
+            enabled=checkpoints.enabled,
+            force_from_step=checkpoints.force_from_step,
+        )
+
+        total_candidates = len(candidates)
+        save_every = max(1, int(scoring_progress_every or 250))
+        progress = step5_partial.load_progress()
+        start_idx = 1
+        metric_rows: List[CandidateMetrics] = []
+        skipped_empty_lemmas = 0
+
+        if progress is not None:
+            start_idx = max(1, int(progress.get("next_index", 1)))
+            skipped_empty_lemmas = int(progress.get("skipped_empty_lemmas", 0))
+            metric_rows = step5_partial.load_parts(start_idx - 1)
+            if start_idx > 1:
+                logger.log(
+                    f"  Step 5 resume: starting from candidate {start_idx}/{total_candidates}, "
+                    f"restored={len(metric_rows)}, skipped_empty={skipped_empty_lemmas}"
+                )
+
+        batch_rows: List[CandidateMetrics] = []
+
+        for idx, (left_id, right_id, cos_sim) in enumerate(candidates, 1):
+            if idx < start_idx:
+                continue
+
+            ls = left_seg_by_id[left_id]
+            rs = right_seg_by_id[right_id]
+            llem = left_lemmas.get(left_id, [])
+            rlem = right_lemmas.get(right_id, [])
+
+            if not llem or not rlem:
+                skipped_empty_lemmas += 1
+            else:
+                tess, soft, sw_raw, sw_norm, al_a, al_b = compute_candidate_metrics(
+                    cos_sim=float(cos_sim),
+                    left_lem=llem,
+                    right_lem=rlem,
+                    idf=idf,
+                    model=model,
+                )
+
+                batch_rows.append(CandidateMetrics(
+                    left_leaf_id=left_id,
+                    right_leaf_id=right_id,
+                    left_parent_id=ls.parent_id,
+                    right_parent_id=rs.parent_id,
+                    left_corpus=ls.corpus,
+                    right_corpus=rs.corpus,
+                    left_node=node_id_for_level(ls, left_level),
+                    right_node=node_id_for_level(rs, right_level),
+                    right_doc_no=extract_doc_no(rs),
+                    cos_sim=float(cos_sim),
+                    tesserae=float(tess),
+                    soft_cos=float(soft),
+                    sw_score_raw=float(sw_raw),
+                    sw_norm=float(sw_norm),
+                    alignment_a=al_a[:25],
+                    alignment_b=al_b[:25],
+                    left_text_snippet=ls.text[:220].replace("\n", " ").strip(),
+                    right_text_snippet=rs.text[:220].replace("\n", " ").strip(),
+                ))
+
+            should_flush = (idx % save_every == 0) or (idx == total_candidates)
+            if should_flush:
+                step5_partial.save_progress(
+                    upto_index=idx,
+                    part_metric_rows=batch_rows,
+                    total_computed=len(metric_rows) + len(batch_rows),
+                    skipped_empty_lemmas=skipped_empty_lemmas,
+                    total_candidates=total_candidates,
+                )
+                metric_rows.extend(batch_rows)
+                batch_rows = []
+
+            if scoring_progress_every and (
+                idx % max(1, int(scoring_progress_every)) == 0 or idx == total_candidates
+            ):
+                logger.log(
+                    f"  Metric progress: {idx}/{len(candidates)}, "
+                    f"computed={len(metric_rows) + len(batch_rows)}, skipped_empty={skipped_empty_lemmas}"
+                )
+
+        if batch_rows:
+            metric_rows.extend(batch_rows)
+
+        step5_data = {
+            "metric_rows": metric_rows,
+            "skipped_empty_lemmas": skipped_empty_lemmas,
+        }
+        checkpoints.save(5, "metrics", step5_data)
+        step5_partial.clear()
+
+    metric_rows = list(step5_data["metric_rows"])
+    skipped_empty_lemmas = int(step5_data.get("skipped_empty_lemmas", 0))
+    if len(metric_rows) > len(candidates):
+        raise RuntimeError(
+            f"Corrupted step 5 checkpoint: computed metric_rows={len(metric_rows)} exceeds "
+            f"retrieval candidates={len(candidates)}. Delete checkpoints/step_05_metrics.pkl "
+            f"and checkpoints/step_05_metrics_parts and rerun from step 5."
+        )
     logger.log(
         f"  Metric computation done: computed={len(metric_rows)}, skipped_empty={skipped_empty_lemmas}"
     )
 
     logger.log("Step 6/7: Pareto filtering and rank aggregation...")
-    assign_pareto_layers(metric_rows)
-    pareto_rows = [r for r in metric_rows if r.pareto_layer <= pareto_keep_layers]
-    rank_aggregate(pareto_rows)
+    step6_data = checkpoints.load(6, "pareto_rank")
+    if step6_data is None:
+        if len(metric_rows) > len(candidates):
+            raise RuntimeError(
+                f"Refusing Step 6: metric_rows={len(metric_rows)} exceeds candidates={len(candidates)}. "
+                f"Most likely Step 5 partial checkpoints were saved cumulatively and reloaded with duplicates."
+            )
+        assign_pareto_layers(metric_rows)
+        pareto_rows = [r for r in metric_rows if r.pareto_layer <= pareto_keep_layers]
+        rank_aggregate(pareto_rows)
 
-    pareto_rows.sort(
-        key=lambda r: (
-            r.rank_final_position,
-            r.left_corpus,
-            r.right_corpus,
-            r.left_leaf_id,
-            r.right_leaf_id,
+        pareto_rows.sort(
+            key=lambda r: (
+                r.rank_final_position,
+                r.left_corpus,
+                r.right_corpus,
+                r.left_leaf_id,
+                r.right_leaf_id,
+            )
         )
-    )
 
+        detail_rows = [metric_row_to_dict(r) for r in pareto_rows]
+        step6_data = {
+            "detail_rows": detail_rows,
+            "metric_rows_total": len(metric_rows),
+        }
+        checkpoints.save(6, "pareto_rank", step6_data)
+
+    detail_rows = list(step6_data["detail_rows"])
     logger.log(
-        f"  Pareto done: total={len(metric_rows)}, "
-        f"kept_layers<={pareto_keep_layers} -> {len(pareto_rows)}"
+        f"  Pareto done: total={int(step6_data.get('metric_rows_total', len(metric_rows)))}, "
+        f"kept_layers<={pareto_keep_layers} -> {len(detail_rows)}"
     )
-
-    detail_rows = [metric_row_to_dict(r) for r in pareto_rows]
 
     logger.log("Step 7/7: Aggregating graph rows and exporting outputs...")
-    graph_rows = aggregate_rows(
-        detail_rows,
-        left_level=left_level,
-        right_level=right_level,
-        weight_mode=weight_mode,
-        min_hits=min_hits,
-    )
-    graph_rows = graph_rows[:graph_top_n]
+    step7_data = checkpoints.load(7, "graph_rows")
+    if step7_data is None:
+        graph_rows = aggregate_rows(
+            detail_rows,
+            left_level=left_level,
+            right_level=right_level,
+            weight_mode=weight_mode,
+            min_hits=min_hits,
+        )
+        graph_rows = graph_rows[:graph_top_n]
+        step7_data = {
+            "graph_rows": graph_rows,
+        }
+        checkpoints.save(7, "graph_rows", step7_data)
+    graph_rows = list(step7_data["graph_rows"])
     logger.log(f"  Graph aggregation done: detail_rows={len(detail_rows)}, graph_rows={len(graph_rows)}")
 
     if bool(output_cfg.get("write_detail_csv")):
@@ -998,6 +1494,8 @@ def run_experiment(
         "graph_rows": graph_rows,
         "out_dir": str(out_dir),
         "graph": G,
+        "checkpoints_enabled": use_checkpoints,
+        "checkpoint_dir": str(checkpoint_dir),
         "stats": {
             "left_leaf": len(left_leaf),
             "right_leaf": len(right_leaf),
@@ -1019,6 +1517,18 @@ def main() -> None:
         default=None,
         help="Override scoring progress period from logging config",
     )
+    ap.add_argument(
+        "--no-checkpoints",
+        action="store_true",
+        help="Disable smart checkpoints and always recompute all steps",
+    )
+    ap.add_argument(
+        "--force-from-step",
+        type=int,
+        default=None,
+        choices=list(range(1, 8)),
+        help="Ignore checkpoints начиная с указанного шага и пересчитать его и все следующие",
+    )
     args = ap.parse_args()
 
     cfg_mod = load_config_module(args.config)
@@ -1027,6 +1537,8 @@ def main() -> None:
         args.experiment,
         verbose=not args.quiet,
         progress_every=args.progress_every,
+        use_checkpoints=not args.no_checkpoints,
+        force_from_step=args.force_from_step,
     )
 
     stats = result.get("stats") or {}
@@ -1034,6 +1546,7 @@ def main() -> None:
     for k in sorted(stats.keys()):
         print(f"[unified] {k}: {stats[k]}", flush=True)
     print(f"[unified] out_dir: {result.get('out_dir')}", flush=True)
+    print(f"[unified] checkpoint_dir: {result.get('checkpoint_dir')}", flush=True)
 
 
 if __name__ == "__main__":
