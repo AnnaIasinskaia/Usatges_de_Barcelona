@@ -202,7 +202,14 @@ LOGGING_DEFAULTS = {
 
 # retrieval.budget — не semantic threshold, а вычислительный budget на дорогую стадию.
 RETRIEVAL_DEFAULTS = {
+    "mode": "pair_quota",
     "budget": 5000,
+    "pair_budget_strategy": "weighted_sqrt",
+    "min_pair_budget": 100,
+    "max_pair_budget": None,
+    "per_left_leaf_cap": 10,
+    "per_right_leaf_cap": 10,
+    "global_budget_after_merge": 5000,
 }
 
 # Пока используем только первый Pareto-frontier.
@@ -271,16 +278,25 @@ EXPERIMENTS = {
         "chunking": {
             "enabled": False,
         },
-        "retrieval": dict(RETRIEVAL_DEFAULTS, budget=5000),
+        "retrieval": dict(
+            RETRIEVAL_DEFAULTS,
+            mode="pair_quota",
+            budget=5000,
+            pair_budget_strategy="weighted_sqrt",
+            min_pair_budget=300,
+            per_left_leaf_cap=12,
+            per_right_leaf_cap=12,
+            global_budget_after_merge=5000,
+        ),
         "pareto": dict(PARETO_DEFAULTS, keep_layers=3),
-        "selection": dict(SELECTION_DEFAULTS, graph_top_n=30),
+        "selection": dict(SELECTION_DEFAULTS, graph_top_n=50),
         "model": dict(MODEL_DEFAULTS),
         "logging": dict(LOGGING_DEFAULTS, scoring_progress_every=250),
         "aggregation": {
             "left_node_level": "corpus",
             "right_node_level": "parent",
-            "weight_mode": "max",
-            "min_hits": 2,
+            "weight_mode": "sum",
+            "min_hits": 1,
         },
         "viz": {
             "enabled": True,
@@ -288,10 +304,59 @@ EXPERIMENTS = {
             "edge_color_by": "left_corpus",
             "label_left": True,
             "label_right": True,
-            "top_n_edges": 30,
+            "top_n_edges": 50,
         },
         "output": {
             "dir": OUTPUT_ROOT / "latin_to_usatges",
+            "write_detail_csv": True,
+            "write_graph_csv": True,
+            "write_gexf": True,
+            "write_png": True,
+        },
+    },
+    
+    "petri_to_usatges": {
+        "description": "Поиск заимствований: латинские источники → Usatges",
+        "graph_sides": {
+            "left": ["ExceptPetri"],
+            "right": ["UsatgesBarcelona"],
+        },
+        "mappings": [
+            {"from": ["ExceptPetri"], "to": ["UsatgesBarcelona"]},
+        ],
+        "chunking": {
+            "enabled": False,
+        },
+        "retrieval": dict(
+            RETRIEVAL_DEFAULTS,
+            mode="pair_quota",
+            budget=2000,
+            pair_budget_strategy="weighted_sqrt",
+            min_pair_budget=200,
+            per_left_leaf_cap=12,
+            per_right_leaf_cap=12,
+            global_budget_after_merge=2000,
+        ),
+        "pareto": dict(PARETO_DEFAULTS, keep_layers=3),
+        "selection": dict(SELECTION_DEFAULTS, graph_top_n=100),
+        "model": dict(MODEL_DEFAULTS),
+        "logging": dict(LOGGING_DEFAULTS, scoring_progress_every=250),
+        "aggregation": {
+            "left_node_level": "corpus",
+            "right_node_level": "parent",
+            "weight_mode": "sum",
+            "min_hits": 1,
+        },
+        "viz": {
+            "enabled": True,
+            "straight_edges": True,
+            "edge_color_by": "left_corpus",
+            "label_left": True,
+            "label_right": True,
+            "top_n_edges": 100,
+        },
+        "output": {
+            "dir": OUTPUT_ROOT / "petri_to_usatges",
             "write_detail_csv": True,
             "write_graph_csv": True,
             "write_gexf": True,

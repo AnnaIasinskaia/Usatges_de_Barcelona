@@ -29,6 +29,7 @@ import csv
 import heapq
 import importlib
 import json
+from collections import defaultdict
 import pickle
 import re
 import time
@@ -165,7 +166,7 @@ def compute_checkpoint_fingerprint(
         "selection": _json_safe(selection_cfg),
         "viz": _json_safe(viz_cfg),
         "source_meta": source_meta,
-        "pipeline_version": "smart-checkpoints-v2-step5-partial",
+        "pipeline_version": "smart-checkpoints-v3-pair-quota-retrieval",
     }
     blob = json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
     return sha256(blob).hexdigest()
@@ -630,6 +631,129 @@ def iter_sparse_row_scores(row_vec, right_matrix):
                 yield col, float(val)
 
 
+
+
+def build_allowed_pair_set(
+    left_corpora: Sequence[str],
+    right_corpora: Sequence[str],
+    mappings: Sequence[Tuple[List[str], List[str]]],
+) -> set[Tuple[str, str]]:
+    allowed_pairs: set[Tuple[str, str]] = set()
+
+    for frm, to in mappings:
+        frm_set = [x for x in frm if x in left_corpora]
+        to_set = [x for x in to if x in right_corpora]
+        for lc in frm_set:
+            for rc in to_set:
+                allowed_pairs.add((lc, rc))
+
+    if not allowed_pairs:
+        for lc in left_corpora:
+            for rc in right_corpora:
+                allowed_pairs.add((lc, rc))
+
+    return allowed_pairs
+
+
+def build_pair_indices(
+    left_ids: Sequence[str],
+    right_ids: Sequence[str],
+    left_seg_by_id: Dict[str, Segment],
+    right_seg_by_id: Dict[str, Segment],
+    allowed_pairs: set[Tuple[str, str]],
+) -> Tuple[
+    Dict[str, List[int]],
+    Dict[str, List[int]],
+    Dict[Tuple[str, str], List[int]],
+    Dict[Tuple[str, str], List[int]],
+]:
+    left_idx_by_corpus: Dict[str, List[int]] = defaultdict(list)
+    right_idx_by_corpus: Dict[str, List[int]] = defaultdict(list)
+
+    for i, left_id in enumerate(left_ids):
+        left_idx_by_corpus[left_seg_by_id[left_id].corpus].append(i)
+
+    for j, right_id in enumerate(right_ids):
+        right_idx_by_corpus[right_seg_by_id[right_id].corpus].append(j)
+
+    left_idx_by_pair: Dict[Tuple[str, str], List[int]] = {}
+    right_idx_by_pair: Dict[Tuple[str, str], List[int]] = {}
+
+    for pair in allowed_pairs:
+        lc, rc = pair
+        left_idx_by_pair[pair] = list(left_idx_by_corpus.get(lc, []))
+        right_idx_by_pair[pair] = list(right_idx_by_corpus.get(rc, []))
+
+    return left_idx_by_corpus, right_idx_by_corpus, left_idx_by_pair, right_idx_by_pair
+
+
+def allocate_pair_budgets(
+    allowed_pairs: Sequence[Tuple[str, str]],
+    left_idx_by_pair: Dict[Tuple[str, str], List[int]],
+    right_idx_by_pair: Dict[Tuple[str, str], List[int]],
+    global_budget: int,
+    strategy: str = "weighted_sqrt",
+    min_pair_budget: int = 50,
+    max_pair_budget: Optional[int] = None,
+) -> Dict[Tuple[str, str], int]:
+    if global_budget <= 0:
+        raise ValueError(f"global_budget must be positive, got {global_budget}")
+
+    active_pairs = [
+        pair
+        for pair in allowed_pairs
+        if left_idx_by_pair.get(pair) and right_idx_by_pair.get(pair)
+    ]
+    if not active_pairs:
+        return {}
+
+    if strategy not in {"equal", "weighted_sqrt"}:
+        raise ValueError(f"Unsupported pair budget strategy: {strategy}")
+
+    if strategy == "equal":
+        base = max(1, global_budget // len(active_pairs))
+        out = {pair: base for pair in active_pairs}
+    else:
+        weights: Dict[Tuple[str, str], float] = {}
+        total_weight = 0.0
+        for pair in active_pairs:
+            nl = len(left_idx_by_pair[pair])
+            nr = len(right_idx_by_pair[pair])
+            w = (max(1, nl) * max(1, nr)) ** 0.5
+            weights[pair] = w
+            total_weight += w
+
+        out = {}
+        for pair in active_pairs:
+            raw = global_budget * (weights[pair] / max(total_weight, 1e-12))
+            out[pair] = max(1, int(round(raw)))
+
+    if min_pair_budget is not None:
+        min_pair_budget = int(min_pair_budget)
+        for pair in active_pairs:
+            out[pair] = max(out[pair], min_pair_budget)
+
+    if max_pair_budget is not None:
+        max_pair_budget = int(max_pair_budget)
+        for pair in active_pairs:
+            out[pair] = min(out[pair], max_pair_budget)
+
+    return out
+
+
+def _keep_top_k_desc(
+    items: List[Tuple[str, float]],
+    k: int,
+) -> List[Tuple[str, float]]:
+    if k <= 0 or not items:
+        return []
+
+    items.sort(key=lambda x: (-float(x[1]), x[0]))
+    if len(items) > k:
+        return items[:k]
+    return items
+
+
 def select_retrieval_candidates_budgeted(
     tfidf_left,
     tfidf_right,
@@ -637,44 +761,180 @@ def select_retrieval_candidates_budgeted(
     right_ids: Sequence[str],
     left_seg_by_id: Dict[str, Segment],
     right_seg_by_id: Dict[str, Segment],
-    allowed_right_corpora_by_left: Dict[str, set],
-    retrieval_budget: int,
+    left_corpora: Sequence[str],
+    right_corpora: Sequence[str],
+    resolved_mappings: Sequence[Tuple[List[str], List[str]]],
+    retrieval_cfg: Dict[str, Any],
     logger: ProgressLogger,
     progress_every: Optional[int] = None,
 ) -> List[Tuple[str, str, float]]:
-    if retrieval_budget <= 0:
-        raise ValueError(f"retrieval_budget must be positive, got {retrieval_budget}")
+    mode = str(retrieval_cfg.get("mode", "pair_quota"))
+    if mode not in {"pair_quota", "global_heap"}:
+        raise ValueError(f"Unsupported retrieval.mode: {mode}")
 
-    heap: List[Tuple[float, str, str]] = []
-    total_left = len(left_ids)
+    global_budget = int(retrieval_cfg.get("budget", 0))
+    if global_budget <= 0:
+        raise ValueError(f"retrieval.budget must be positive, got {global_budget}")
 
-    for idx, left_id in enumerate(left_ids, 1):
-        left_seg = left_seg_by_id[left_id]
-        allowed_right_corpora = allowed_right_corpora_by_left.get(left_seg.corpus, set())
+    if mode == "global_heap":
+        allowed_right_corpora_by_left = build_allowed_right_corpora_by_left(
+            left_corpora, right_corpora, resolved_mappings
+        )
 
-        row_vec = tfidf_left[idx - 1]
-        for right_idx, sim in iter_sparse_row_scores(row_vec, tfidf_right):
-            if sim <= 0.0:
-                continue
-            right_id = right_ids[right_idx]
-            right_seg = right_seg_by_id[right_id]
-            if right_seg.corpus not in allowed_right_corpora:
-                continue
+        heap: List[Tuple[float, str, str]] = []
+        total_left = len(left_ids)
 
-            item = (sim, left_id, right_id)
-            if len(heap) < retrieval_budget:
-                heapq.heappush(heap, item)
-            else:
-                if sim > heap[0][0]:
+        for idx, left_id in enumerate(left_ids, 1):
+            left_seg = left_seg_by_id[left_id]
+            allowed_right_corpora = allowed_right_corpora_by_left.get(left_seg.corpus, set())
+            row_vec = tfidf_left[idx - 1]
+
+            for right_idx, sim in iter_sparse_row_scores(row_vec, tfidf_right):
+                if sim <= 0.0:
+                    continue
+                right_id = right_ids[right_idx]
+                right_seg = right_seg_by_id[right_id]
+                if right_seg.corpus not in allowed_right_corpora:
+                    continue
+
+                item = (sim, left_id, right_id)
+                if len(heap) < global_budget:
+                    heapq.heappush(heap, item)
+                elif sim > heap[0][0]:
                     heapq.heapreplace(heap, item)
 
-        if progress_every and (idx % max(1, int(progress_every)) == 0 or idx == total_left):
-            logger.log(f"  Retrieval progress: {idx}/{total_left}, heap={len(heap)}")
+            if progress_every and (idx % max(1, int(progress_every)) == 0 or idx == total_left):
+                logger.log(f"  Retrieval progress: {idx}/{total_left}, heap={len(heap)}")
 
-    out = [(left_id, right_id, float(sim)) for sim, left_id, right_id in heap]
+        out = [(left_id, right_id, float(sim)) for sim, left_id, right_id in heap]
+        out.sort(key=lambda x: (-float(x[2]), x[0], x[1]))
+        return out
+
+    allowed_pairs = build_allowed_pair_set(
+        left_corpora=left_corpora,
+        right_corpora=right_corpora,
+        mappings=resolved_mappings,
+    )
+
+    _, _, left_idx_by_pair, right_idx_by_pair = build_pair_indices(
+        left_ids=left_ids,
+        right_ids=right_ids,
+        left_seg_by_id=left_seg_by_id,
+        right_seg_by_id=right_seg_by_id,
+        allowed_pairs=allowed_pairs,
+    )
+
+    pair_budget_strategy = str(retrieval_cfg.get("pair_budget_strategy", "weighted_sqrt"))
+    min_pair_budget = int(retrieval_cfg.get("min_pair_budget", 50))
+    max_pair_budget = retrieval_cfg.get("max_pair_budget")
+    per_left_leaf_cap = int(retrieval_cfg.get("per_left_leaf_cap", 10))
+    per_right_leaf_cap = int(retrieval_cfg.get("per_right_leaf_cap", 10))
+    final_global_cap = retrieval_cfg.get("global_budget_after_merge", global_budget)
+    if final_global_cap is not None:
+        final_global_cap = int(final_global_cap)
+
+    pair_budgets = allocate_pair_budgets(
+        allowed_pairs=sorted(allowed_pairs),
+        left_idx_by_pair=left_idx_by_pair,
+        right_idx_by_pair=right_idx_by_pair,
+        global_budget=global_budget,
+        strategy=pair_budget_strategy,
+        min_pair_budget=min_pair_budget,
+        max_pair_budget=max_pair_budget,
+    )
+
+    logger.log(
+        "  Retrieval mode=pair_quota, "
+        f"pairs={len(pair_budgets)}, "
+        f"per_left_leaf_cap={per_left_leaf_cap}, "
+        f"per_right_leaf_cap={per_right_leaf_cap}"
+    )
+
+    all_candidates: Dict[Tuple[str, str], float] = {}
+    active_pairs = sorted(pair_budgets.keys())
+
+    for pair_idx, pair in enumerate(active_pairs, 1):
+        lc, rc = pair
+        pair_budget = int(pair_budgets[pair])
+        left_rows = left_idx_by_pair.get(pair, [])
+        right_cols = right_idx_by_pair.get(pair, [])
+
+        if not left_rows or not right_cols or pair_budget <= 0:
+            continue
+
+        allowed_right_positions = set(right_cols)
+
+        by_left: Dict[str, List[Tuple[str, float]]] = {}
+        for local_i, left_row_idx in enumerate(left_rows, 1):
+            left_id = left_ids[left_row_idx]
+            row_vec = tfidf_left[left_row_idx]
+
+            left_hits: List[Tuple[str, float]] = []
+            for right_idx, sim in iter_sparse_row_scores(row_vec, tfidf_right):
+                if right_idx not in allowed_right_positions:
+                    continue
+                if sim <= 0.0:
+                    continue
+                right_id = right_ids[right_idx]
+                left_hits.append((right_id, float(sim)))
+
+            left_hits = _keep_top_k_desc(left_hits, per_left_leaf_cap)
+            by_left[left_id] = left_hits
+
+            if progress_every and (local_i % max(1, int(progress_every)) == 0 or local_i == len(left_rows)):
+                logger.log(
+                    f"  Retrieval pair {lc}->{rc}: "
+                    f"{local_i}/{len(left_rows)} left rows processed"
+                )
+
+        by_right: Dict[str, List[Tuple[str, float]]] = defaultdict(list)
+        for left_id, hits in by_left.items():
+            for right_id, sim in hits:
+                by_right[right_id].append((left_id, sim))
+
+        allowed_pairs_bidirectional: set[Tuple[str, str]] = set()
+        for left_id, hits in by_left.items():
+            for right_id, _sim in hits:
+                allowed_pairs_bidirectional.add((left_id, right_id))
+
+        for right_id, hits in by_right.items():
+            for left_id, _sim in _keep_top_k_desc(hits, per_right_leaf_cap):
+                allowed_pairs_bidirectional.add((left_id, right_id))
+
+        pair_candidates: List[Tuple[str, str, float]] = []
+        for left_id, hits in by_left.items():
+            for right_id, sim in hits:
+                if (left_id, right_id) in allowed_pairs_bidirectional:
+                    pair_candidates.append((left_id, right_id, float(sim)))
+
+        pair_candidates.sort(key=lambda x: (-float(x[2]), x[0], x[1]))
+        if len(pair_candidates) > pair_budget:
+            pair_candidates = pair_candidates[:pair_budget]
+
+        logger.log(
+            f"  Retrieval pair done {lc}->{rc}: "
+            f"budget={pair_budget}, kept={len(pair_candidates)}"
+        )
+
+        for left_id, right_id, sim in pair_candidates:
+            key = (left_id, right_id)
+            prev = all_candidates.get(key)
+            if prev is None or sim > prev:
+                all_candidates[key] = float(sim)
+
+        if progress_every and (pair_idx % max(1, int(progress_every)) == 0 or pair_idx == len(active_pairs)):
+            logger.log(f"  Retrieval pair progress: {pair_idx}/{len(active_pairs)}")
+
+    out = [
+        (left_id, right_id, float(sim))
+        for (left_id, right_id), sim in all_candidates.items()
+    ]
     out.sort(key=lambda x: (-float(x[2]), x[0], x[1]))
-    return out
 
+    if final_global_cap is not None and final_global_cap > 0 and len(out) > final_global_cap:
+        out = out[:final_global_cap]
+
+    return out
 
 def dominates(a: CandidateMetrics, b: CandidateMetrics) -> bool:
     ge_all = (
@@ -1202,10 +1462,6 @@ def run_experiment(
         tfidf_left = tfidf[:n_left]
         tfidf_right = tfidf[n_left:]
 
-        allowed_right_corpora_by_left = build_allowed_right_corpora_by_left(
-            left_corpora, right_corpora, resolved_mappings
-        )
-
         candidates = select_retrieval_candidates_budgeted(
             tfidf_left=tfidf_left,
             tfidf_right=tfidf_right,
@@ -1213,8 +1469,10 @@ def run_experiment(
             right_ids=right_ids,
             left_seg_by_id=left_seg_by_id,
             right_seg_by_id=right_seg_by_id,
-            allowed_right_corpora_by_left=allowed_right_corpora_by_left,
-            retrieval_budget=retrieval_budget,
+            left_corpora=left_corpora,
+            right_corpora=right_corpora,
+            resolved_mappings=resolved_mappings,
+            retrieval_cfg=retrieval_cfg,
             logger=logger,
             progress_every=candidate_progress_every,
         )
