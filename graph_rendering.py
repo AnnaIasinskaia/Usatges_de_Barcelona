@@ -197,10 +197,22 @@ def render_bipartite_graph(
     )
 
     edgelist = list(G.edges())
-    weights = [
-        max(0.6, min(4.0, 0.6 + 3.0 * float(G.edges[e].get("weight", 0.0))))
-        for e in edgelist
-    ]
+    # --- выделяем top-3 рёбер по весу ---
+    sorted_edges = sorted(
+        edgelist,
+        key=lambda e: float(G.edges[e].get("weight", 0.0)),
+        reverse=True
+    )
+
+    top_edges = set(sorted_edges[:3])
+
+    # --- задаём толщины ---
+    weights = []
+    for e in edgelist:
+        if e in top_edges:
+            weights.append(4.0)   # толстые (фиксированная ширина)
+        else:
+            weights.append(1.5)   # обычные
     edge_colors = [G.nodes[u].get("color", "#666666") for (u, v) in edgelist]
 
     edge_kwargs = {}
