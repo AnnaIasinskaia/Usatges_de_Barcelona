@@ -7,6 +7,7 @@ from __future__ import annotations
 import logging
 import math
 from collections import Counter
+from functools import lru_cache
 from typing import Callable, Dict, List, Optional, Tuple
 
 import numpy as np
@@ -77,13 +78,6 @@ def select_tfidf_candidates(
     progress_every: Optional[int] = None,
     progress_callback: Optional[Callable[[str], None]] = None,
 ) -> List[Tuple[str, str, float]]:
-    """
-    Build candidate pairs from two normalized TF-IDF matrices.
-
-    If ``top_k_per_left`` is None, returns all pairs above ``threshold``.
-    Otherwise, keeps at most top-k candidates for each left row, still subject
-    to the same threshold.
-    """
     sim = tfidf_left @ tfidf_right.T
 
     pairs: List[Tuple[str, str, float]] = []
@@ -167,6 +161,65 @@ def levenshtein_distance(s1: str, s2: str) -> int:
     return previous_row[-1]
 
 
+@lru_cache(maxsize=500_000)
+def _term_similarity(a: str, b: str, lev_threshold: int) -> float:
+    if not isinstance(a, str):
+        a = str(a)
+    if not isinstance(b, str):
+        b = str(b)
+
+    if a == b:
+        return 1.0
+
+    if abs(len(a) - len(b)) > lev_threshold:
+        return 0.0
+
+    # canonicalize key order for cache hit rate
+    if a > b:
+        a, b = b, a
+
+    d = levenshtein_distance(a, b)
+    if d > lev_threshold:
+        return 0.0
+
+    max_len = max(len(a), len(b))
+    if max_len == 0:
+        return 0.0
+    return 1.0 - d / max_len
+
+
+def _hard_cosine_similarity(counts_a: Counter, counts_b: Counter) -> float:
+    common = set(counts_a) & set(counts_b)
+    if not common:
+        return 0.0
+    dot = sum(counts_a[t] * counts_b[t] for t in common)
+    norm_a = math.sqrt(sum(v * v for v in counts_a.values()))
+    norm_b = math.sqrt(sum(v * v for v in counts_b.values()))
+    if norm_a == 0 or norm_b == 0:
+        return 0.0
+    return dot / (norm_a * norm_b)
+
+
+def _soft_quadratic_form(counts: Counter, lev_threshold: int) -> float:
+    terms = list(counts.keys())
+    total = 0.0
+
+    for term in terms:
+        c = counts[term]
+        total += c * c
+
+    for i in range(len(terms)):
+        term_i = terms[i]
+        count_i = counts[term_i]
+        for j in range(i + 1, len(terms)):
+            term_j = terms[j]
+            sim = _term_similarity(term_i, term_j, lev_threshold)
+            if sim > 0.0:
+                total += 2.0 * count_i * counts[term_j] * sim
+
+    return total
+
+
 def soft_cosine_similarity(
     lemmas_a: List[str],
     lemmas_b: List[str],
@@ -174,57 +227,35 @@ def soft_cosine_similarity(
     max_terms: int = 500,
 ) -> float:
     """
-    Soft cosine similarity with a safety cap on the number of unique terms
-    to prevent O(n^2) memory explosions.
+    Faster and stable soft cosine similarity.
+
+    Keeps the same interface as the original implementation.
+    Uses cached pairwise term similarity and avoids building a dense n x n matrix.
     """
     if not lemmas_a or not lemmas_b:
         return 0.0
 
-    all_terms = sorted(set(lemmas_a) | set(lemmas_b))
+    counts_a = Counter(lemmas_a)
+    counts_b = Counter(lemmas_b)
 
-    # Safety: if too many unique terms, fall back to hard cosine
-    if len(all_terms) > max_terms:
-        # Simple hard cosine as fallback
-        set_a = Counter(lemmas_a)
-        set_b = Counter(lemmas_b)
-        common = set(set_a.keys()) & set(set_b.keys())
-        if not common:
-            return 0.0
-        dot = sum(set_a[t] * set_b[t] for t in common)
-        norm_a = math.sqrt(sum(v * v for v in set_a.values()))
-        norm_b = math.sqrt(sum(v * v for v in set_b.values()))
-        if norm_a == 0 or norm_b == 0:
-            return 0.0
-        return dot / (norm_a * norm_b)
+    all_terms_n = len(set(counts_a) | set(counts_b))
+    if all_terms_n > max_terms:
+        return _hard_cosine_similarity(counts_a, counts_b)
 
-    term2idx = {t: i for i, t in enumerate(all_terms)}
-    n = len(all_terms)
+    numerator = 0.0
+    for term_a, count_a in counts_a.items():
+        for term_b, count_b in counts_b.items():
+            sim = _term_similarity(term_a, term_b, lev_threshold)
+            if sim > 0.0:
+                numerator += count_a * count_b * sim
 
-    vec_a = np.zeros(n, dtype=np.float32)
-    vec_b = np.zeros(n, dtype=np.float32)
-    for w in lemmas_a:
-        vec_a[term2idx[w]] += 1
-    for w in lemmas_b:
-        vec_b[term2idx[w]] += 1
+    denom_a = _soft_quadratic_form(counts_a, lev_threshold)
+    denom_b = _soft_quadratic_form(counts_b, lev_threshold)
 
-    S = np.eye(n, dtype=np.float32)
-    for i in range(n):
-        for j in range(i + 1, n):
-            lev = levenshtein_distance(all_terms[i], all_terms[j])
-            max_len = max(len(all_terms[i]), len(all_terms[j]))
-            if lev <= lev_threshold and max_len > 0:
-                sim = 1.0 - lev / max_len
-                S[i, j] = sim
-                S[j, i] = sim
-
-    numerator = float(vec_a @ S @ vec_b)
-    denom_a = math.sqrt(float(vec_a @ S @ vec_a))
-    denom_b = math.sqrt(float(vec_b @ S @ vec_b))
-
-    if denom_a == 0 or denom_b == 0:
+    if denom_a <= 0.0 or denom_b <= 0.0:
         return 0.0
 
-    return numerator / (denom_a * denom_b)
+    return numerator / math.sqrt(denom_a * denom_b)
 
 
 def compute_idf(corpus: List[List[str]]) -> Dict[str, float]:
