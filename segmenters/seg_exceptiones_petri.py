@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Segmenter for Exceptiones Legum Romanorum Petri (new edition / OCR v3)."""
+"""Segmenter for Exceptiones Legum Romanorum Petri (Transkribus OCR v4)."""
 
 from __future__ import annotations
 
 import re
 import unicodedata
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple
 
 from .seg_common import clean_text, read_source_file, validate_segments
 
@@ -16,51 +16,79 @@ from .seg_common import clean_text, read_source_file, validate_segments
 # Helpers
 # ---------------------------------------------------------
 
-_ORDINAL_WORDS = {
-    "primum": 1,
-    "primi": 1,
-    "primo": 1,
-    "primit": 1,
-    "primiti": 1,
-    "secundum": 2,
-    "secundi": 2,
-    "tertium": 3,
-    "tertii": 3,
-    "quartum": 4,
-    "quarti": 4,
-    "quintum": 5,
-    "quinti": 5,
-    "sextum": 6,
-    "sexti": 6,
-    "septimum": 7,
-    "septimi": 7,
-    "octavum": 8,
-    "octavi": 8,
-    "nonum": 9,
-    "noni": 9,
-    "decimum": 10,
-    "decimi": 10,
+_BOOK_LABELS = {
+    1: "PRIMVS",
+    2: "SECVNDVS",
+    3: "TERCIVS",
+    4: "QVARTVS",
+    5: "QVINTVS",
 }
 
-_BOOK_PATTERNS: List[Tuple[int, re.Pattern[str]]] = [
-    (1, re.compile(r"LIBER\s*P\s*RIMV?S")),
-    (2, re.compile(r"LIBER\s*S\s*E\s*C\s*V?N?D?V?S")),
-    (3, re.compile(r"LIBER\s*T\s*E\s*R\s*T\s*I\s*V?S")),
-    (4, re.compile(r"LIBER\s*Q\s*V?\s*A\s*R\s*T\s*V?S")),
-    (5, re.compile(r"LIBER\s*Q\s*V?\s*I\s*N\s*T\s*V?S")),
-]
+_ORDINAL_WORDS = {
+    "primum": 1,
+    "primo": 1,
+    "primi": 1,
+    "primum.": 1,
+    "secundum": 2,
+    "secundo": 2,
+    "secundi": 2,
+    "tertium": 3,
+    "tertio": 3,
+    "tertii": 3,
+    "quartum": 4,
+    "quarto": 4,
+    "quarti": 4,
+    "quintum": 5,
+    "quinto": 5,
+    "quinti": 5,
+    "sextum": 6,
+    "sexto": 6,
+    "sexti": 6,
+    "septimum": 7,
+    "septimo": 7,
+    "septimi": 7,
+    "octauum": 8,
+    "octavum": 8,
+    "octauo": 8,
+    "octavo": 8,
+    "octaui": 8,
+    "octavi": 8,
+    "nonum": 9,
+    "nono": 9,
+    "noni": 9,
+    "decimum": 10,
+    "decimo": 10,
+    "decimi": 10,
+    "primu": 1,
+    "secundu": 2,
+    "tertiu": 3,
+    "quartu": 4,
+    "quintu": 5,
+    "sextu": 6,
+    "septimu": 7,
+    "octavu": 8,
+    "nonu": 9,
+    "decimu": 10,
+}
 
-_CHAPTER_HEAD_RE = re.compile(
-    r"(?P<title>"
-    r"(?:De|Decodem|Q\s*ui|Tudex|Ne\s+quis|Mulieres|Dos|Inter|Nuptie|Cum)"
-    r"[^\.]{1,80}?"
-    r")"
-    r"\s*[,.:;—\-| ]+\s*"
-    r"(?:"
-    r"Capitulum\s+(?P<cap_word>[A-Za-z]+)"
-    r"|"
-    r"(?:ca|c[ao@]|@)\.?\s*(?P<cap_tok>[A-Za-z0-9£íivxljfg]{1,10})"
-    r")"
+_BOOK_RE = re.compile(
+    r"\bLIBER\s+(PRIMVS|SECVNDVS|SECVNDUS|TERCIVS|TERTIUS|QVARTVS|QUARTVS|QVINTVS|QUINTUS)\b",
+    re.IGNORECASE,
+)
+
+_MARKER_ONLY_RE = re.compile(
+    r"^(?:ca\.?|capitulum)\s+([^\s]+)[\.:,;\)]*$",
+    re.IGNORECASE,
+)
+
+_INLINE_HEADING_RE = re.compile(
+    r"^(?P<title>.+?)\s+(?:ca\.?|Capitulum)\s+(?P<num>[^\s]+)[\.:,;\)]*$",
+    re.IGNORECASE,
+)
+
+_STOP_MARKERS = (
+    "TRACTATVS DE ACTIONVM",
+    "TRACTATUS DE ACTIONVM",
 )
 
 
@@ -71,8 +99,51 @@ def _fold_ascii(text: str) -> str:
     )
 
 
-def _safe_strip(text: str) -> str:
+def _normalize_ws(text: str) -> str:
     return " ".join(text.split()).strip()
+
+
+def _roman_to_int(token: str) -> Optional[int]:
+    raw = _fold_ascii(token).lower().replace("j", "i")
+    raw = re.sub(r"[^a-z0-9]", "", raw)
+    if not raw:
+        return None
+
+    if raw in _ORDINAL_WORDS:
+        return _ORDINAL_WORDS[raw]
+
+    if raw.endswith("u") and (raw + "m") in _ORDINAL_WORDS:
+        return _ORDINAL_WORDS[raw + "m"]
+
+    t = raw.replace("u", "v")
+    roman = "".join(ch for ch in t if ch in "ivxlcdm")
+    if not roman:
+        return None
+
+    vals = {"i": 1, "v": 5, "x": 10, "l": 50, "c": 100, "d": 500, "m": 1000}
+    total = 0
+    prev = 0
+    for ch in reversed(roman):
+        val = vals[ch]
+        if val < prev:
+            total -= val
+        else:
+            total += val
+            prev = val
+    if 0 < total < 500:
+        return total
+    return None
+
+
+def _book_no_from_line(line: str) -> Optional[int]:
+    m = _BOOK_RE.search(_fold_ascii(line))
+    if not m:
+        return None
+    lab = m.group(1).upper().replace("U", "V")
+    for num, name in _BOOK_LABELS.items():
+        if lab == name:
+            return num
+    return None
 
 
 def _is_noise_line(line: str) -> bool:
@@ -82,210 +153,225 @@ def _is_noise_line(line: str) -> bool:
 
     low = _fold_ascii(s).lower()
 
-    if low.startswith(
-        (
-            "erstellungsdatum",
-            "titel:",
-            "ort:",
-            "verlag:",
-            "jahr:",
-            "doi /",
-            "nutzungsbedingungen",
-            "http",
-        )
-    ):
+    starts = (
+        "erstellungsdatum",
+        "titel:",
+        "ort:",
+        "verlag:",
+        "jahr:",
+        "doi",
+        "nutzungsbedingungen",
+        "http",
+    )
+    if low.startswith(starts):
         return True
 
-    if "digi.ub.uni" in low:
+    noisy_substrings = (
+        "heidelberg",
+        "universitatsbibliothek",
+        "universitats",
+        "bibliothek",
+        "baden",
+        "digi.ub.uni",
+        "control grey",
+        "chart",
+    )
+    if any(x in low for x in noisy_substrings):
         return True
 
-    if "universitats-bibliothek" in low or "universitatsbibliothek" in low:
+    if re.fullmatch(r"[LI0-9 .,'/:;\-]+", s) and len(s) <= 20:
+        return True
+    if re.fullmatch(r"FO\.?\s*[A-Za-z0-9ivxlcdm\.]+", _fold_ascii(s), re.IGNORECASE):
+        return True
+    if re.fullmatch(r"L[Il1\.]*(?:\s*FO\.?\s*[A-Za-z0-9ivxlcdm\.]+)?", _fold_ascii(s), re.IGNORECASE):
         return True
 
-    if "heidelberg" in low and ("universit" in low or "digi." in low or "http" in low):
-        return True
-
-    if "baden-wurtt" in low or "badenwurtt" in low or "wilrtiemberg" in low:
-        return True
-
-    alpha = sum(ch.isalpha() for ch in s)
-    if alpha < 2 and len(s) < 8:
+    letters = sum(ch.isalpha() for ch in s)
+    if letters <= 2 and len(s) <= 8:
         return True
 
     return False
 
 
-def _prepare_text(text: str) -> str:
-    kept: List[str] = []
-    for line in text.splitlines():
-        if _is_noise_line(line):
+def _drop_front_matter(lines: List[str]) -> List[str]:
+    start_idx = None
+    for i, line in enumerate(lines):
+        if _book_no_from_line(line) == 1:
+            start_idx = i
+            break
+    if start_idx is None:
+        return []
+    return lines[start_idx:]
+
+
+def _iter_clean_lines(text: str) -> List[str]:
+    raw_lines = [ln.rstrip() for ln in text.splitlines()]
+    raw_lines = _drop_front_matter(raw_lines)
+    out: List[str] = []
+    for line in raw_lines:
+        s = line.strip()
+        if not s:
             continue
-        kept.append(line.strip())
+        if any(marker in s for marker in _STOP_MARKERS):
+            break
+        if _is_noise_line(s):
+            continue
+        out.append(s)
+    return out
 
-    joined = " ".join(kept)
-    joined = re.sub(r"(\w)-\s+(\w)", r"\1\2", joined)
-    joined = re.sub(r"\s+", " ", joined).strip()
-    return joined
+
+def _is_heading_like(line: str) -> bool:
+    s = _normalize_ws(line)
+    if not s:
+        return False
+    if _book_no_from_line(s) is not None:
+        return True
+    if _MARKER_ONLY_RE.match(s):
+        return True
+    if _INLINE_HEADING_RE.match(s):
+        return True
+    if s.startswith(("De ", "Qui ", "Cum ", "Ne ", "Si ")) and len(s) <= 120:
+        return True
+    return False
 
 
-def _roman_to_int(token: str) -> Optional[int]:
-    t = _fold_ascii(token).lower()
-    t = re.sub(r"[^a-z0-9£]", "", t)
-    if not t:
-        return None
+def _parse_heading(lines: List[str], i: int) -> Optional[Tuple[int, int, str, int]]:
+    """
+    Returns (chapter_no, consumed_lines, heading_text, inline_title_len)
+    consumed_lines = number of lines used by the heading.
+    """
+    cur = _normalize_ws(lines[i])
 
-    if t in _ORDINAL_WORDS:
-        return _ORDINAL_WORDS[t]
+    m = _INLINE_HEADING_RE.match(cur)
+    if m:
+        no = _roman_to_int(m.group("num"))
+        if no is not None:
+            title = _normalize_ws(m.group("title"))
+            return no, 1, f"{title}. ca. {m.group('num')}", 1
 
-    t = (
-        t.replace("j", "i")
-        .replace("£", "i")
-        .replace("f", "i")
-        .replace("t", "i")
-        .replace("r", "i")
-        .replace("g", "ii")
-    )
-    t = "".join(ch for ch in t if ch in "ivxlcdm")
-    if not t:
-        return None
+    if i + 1 < len(lines):
+        nxt = _normalize_ws(lines[i + 1])
+        m2 = _MARKER_ONLY_RE.match(nxt)
+        if m2 and not _book_no_from_line(cur):
+            no = _roman_to_int(m2.group(1))
+            if no is not None and len(cur) <= 160:
+                return no, 2, f"{cur}. ca. {m2.group(1)}", 1
 
-    vals = {"i": 1, "v": 5, "x": 10, "l": 50, "c": 100, "d": 500, "m": 1000}
-    total = 0
-    prev = 0
-    for ch in reversed(t):
-        val = vals[ch]
-        if val < prev:
-            total -= val
-        else:
-            total += val
-            prev = val
-
-    if 0 < total < 200:
-        return total
     return None
 
 
-def _normalize_title(title: str) -> str:
-    t = _safe_strip(title)
-    t = re.sub(r"^[\"'`\-–—:;,.| ]+", "", t)
-    t = re.sub(r"[\"'`\-–—:;,.| ]+$", "", t)
-    t = t.replace("Q ui", "Qui")
-    return t
-
-
-def _find_books(text: str) -> List[Tuple[int, int, int]]:
-    found: List[Tuple[int, int, int]] = []
-    for book_no, pat in _BOOK_PATTERNS:
-        for m in pat.finditer(text):
-            found.append((m.start(), m.end(), book_no))
-
-    found.sort()
-    dedup: List[Tuple[int, int, int]] = []
-    last_pos = -10**9
-    for start, end, book_no in found:
-        if start - last_pos < 40:
-            continue
-        dedup.append((start, end, book_no))
-        last_pos = start
-    return dedup
-
-
-def _find_chapter_starts(block: str) -> List[Tuple[int, int, str]]:
-    starts: List[Tuple[int, int, str]] = []
-
-    expected_next = 1
-    for m in _CHAPTER_HEAD_RE.finditer(block):
-        title = _normalize_title(m.group("title") or "")
-        if not title:
-            continue
-
-        token = (m.group("cap_word") or m.group("cap_tok") or "").strip()
-        parsed = _roman_to_int(token)
-
-        if parsed is None or parsed < expected_next or parsed > expected_next + 5:
-            cap_no = expected_next
-        else:
-            cap_no = parsed
-
-        starts.append((m.start(), cap_no, title))
-        expected_next = cap_no + 1
-
-    collapsed: List[Tuple[int, int, str]] = []
-    last_pos = -10**9
-    last_no = None
-    for pos, cap_no, title in starts:
-        if pos - last_pos < 25 and last_no == cap_no:
-            continue
-        collapsed.append((pos, cap_no, title))
-        last_pos = pos
-        last_no = cap_no
-
-    return collapsed
-
-
-def _clean_segment_text(text: str) -> str:
-    t = text
-    t = re.sub(r"(\w)-\s+(\w)", r"\1\2", t)
-    t = re.sub(r"\bFol\.?\s*[A-Za-z0-9'«»\.\-]+\b", " ", t)
-    t = re.sub(r"\bFo[blf]?\.?\s*[A-Za-z0-9'«»\.\-]+\b", " ", t)
-    t = re.sub(r"\bLI+\s*FO\.?\s*[A-Za-z0-9]+\b", " ", t)
-    t = re.sub(r"\bCapitula\s+[A-Z][^.]{0,120}", " ", t)
-    t = re.sub(r"\bEXCEPCIONVM\s+LEGVM[^.]{0,80}", " ", t)
-    t = re.sub(r"\s+", " ", t)
-    return clean_text(t)
+def _clean_joined_text(lines: Iterable[str]) -> str:
+    joined = "\n".join(lines)
+    joined = joined.replace("¬\n", "")
+    joined = re.sub(r"(\w)[\-¬]\n(\w)", r"\1\2", joined)
+    joined = re.sub(r"\n+", " ", joined)
+    joined = re.sub(r"\s+", " ", joined)
+    joined = re.sub(r"\bFo\.?\s*[A-Za-z0-9ivxlcdm\.]+\b", " ", joined, flags=re.IGNORECASE)
+    joined = re.sub(r"\bFol\.?\s*[A-Za-z0-9ivxlcdm\.]+\b", " ", joined, flags=re.IGNORECASE)
+    joined = re.sub(r"\bCapitula\b[^\.]{0,160}", " ", joined, flags=re.IGNORECASE)
+    joined = re.sub(r"\bIncipiunt\b[^\.]{0,160}", " ", joined, flags=re.IGNORECASE)
+    joined = re.sub(r"\s+", " ", joined).strip()
+    return clean_text(joined)
 
 
 # ---------------------------------------------------------
 # Main segmentation
 # ---------------------------------------------------------
 
-def segment_exceptiones_petri(text: str, source_name: str) -> List[Tuple[str, str]]:
+
+def segment_exceptiones_petri(text: str, source_name: str, debug: bool = False) -> List[Tuple[str, str]]:
     """
-    OCR-aware segmentation for Exceptiones Petri.
+    Segment Exceptiones Petri v4 into large structural units.
 
     Structural unit:
-      one segment = one chapter inside a detected Liber.
+      one segment = one numbered chapter inside a detected Liber.
 
     IDs:
       ExceptPetri_L1_C1
       ExceptPetri_L1_C2
       ExceptPetri_L4_C1
+
+    Important:
+      chapter numbers are taken from the document itself;
+      no inferred/guessed numbering is used.
     """
-    prepared = _prepare_text(text)
-    books = _find_books(prepared)
-    if not books:
+    lines = _iter_clean_lines(text)
+    if not lines:
         return []
 
-    raw_segments: List[Tuple[str, str]] = []
+    segments: List[Tuple[str, str]] = []
+    current_book: Optional[int] = None
+    current_chapter: Optional[int] = None
+    current_heading: Optional[str] = None
+    current_body: List[str] = []
 
-    for i, (book_start, book_head_end, book_no) in enumerate(books):
-        book_end = books[i + 1][0] if i + 1 < len(books) else len(prepared)
-        block = prepared[book_head_end:book_end].strip()
-        if not block:
+    def flush() -> None:
+        nonlocal current_book, current_chapter, current_heading, current_body, segments
+        if current_book is None or current_chapter is None or current_heading is None:
+            current_body = []
+            return
+        text_lines = [current_heading] + current_body
+        seg_text = _clean_joined_text(text_lines)
+        if seg_text:
+            seg_id = f"{source_name}_L{current_book}_C{current_chapter}"
+            segments.append((seg_id, seg_text))
+        current_body = []
+
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+
+        book_no = _book_no_from_line(line)
+        if book_no is not None:
+            flush()
+            current_book = book_no
+            current_chapter = None
+            current_heading = None
+            current_body = []
+            i += 1
             continue
 
-        chapter_starts = _find_chapter_starts(block)
-        if not chapter_starts:
+        if current_book is None:
+            i += 1
             continue
 
-        for j, (start_pos, cap_no, title) in enumerate(chapter_starts):
-            end_pos = chapter_starts[j + 1][0] if j + 1 < len(chapter_starts) else len(block)
-            chunk = block[start_pos:end_pos].strip()
-            cleaned = _clean_segment_text(chunk)
-            if not cleaned:
-                continue
+        parsed = _parse_heading(lines, i)
+        if parsed is not None:
+            chap_no, consumed, heading_text, _ = parsed
+            flush()
+            current_chapter = chap_no
+            current_heading = heading_text
+            current_body = []
+            i += consumed
+            continue
 
-            seg_id = f"{source_name}_L{book_no}_C{cap_no}"
-            raw_segments.append((seg_id, cleaned))
+        if current_chapter is not None:
+            # guard against stray TOC / page furniture leaking into body
+            if not _is_noise_line(line):
+                current_body.append(line)
+        i += 1
 
+    flush()
+
+    # keep longest duplicate if the OCR produced repeated headers/pages
     best: Dict[str, str] = {}
-    for seg_id, seg_text in raw_segments:
-        cur = best.get(seg_id)
-        if cur is None or len(seg_text) > len(cur):
+    for seg_id, seg_text in segments:
+        prev = best.get(seg_id)
+        if prev is None or len(seg_text) > len(prev):
             best[seg_id] = seg_text
 
-    segments = sorted(best.items(), key=lambda x: x[0])
-    return validate_segments(segments, source_name)
+    ordered = sorted(
+        best.items(),
+        key=lambda x: tuple(int(n) for n in re.findall(r"\d+", x[0])) or (9999,),
+    )
+
+    if debug:
+        print(f"Detected segments: {len(ordered)}")
+        for sid, txt in ordered[:5]:
+            print(sid, txt[:100])
+
+    return validate_segments(ordered, source_name)
+
 
 
 def segment_exceptiones_petri_unified(source_file, source_name):
@@ -308,11 +394,13 @@ def segment_exceptiones_petri_unified(source_file, source_name):
     return segment_exceptiones_petri(text, source_name)
 
 
+
 def main() -> None:
     candidates = [
+        Path("data/Exeptionis_Legum_Romanorum_Petri_v4.txt"),
+        Path("Exeptionis_Legum_Romanorum_Petri_v4.txt"),
+        Path("/mnt/data/Exeptionis_Legum_Romanorum_Petri_v4.txt"),
         Path("data/Exeptionis_Legum_Romanorum_Petri_v3.txt"),
-        Path("Exeptionis_Legum_Romanorum_Petri_v3.txt"),
-        Path("/mnt/data/Exeptionis_Legum_Romanorum_Petri_v3.txt"),
         Path("data/Exeptionis_Legum_Romanorum_Petri_v2.txt"),
     ]
 
