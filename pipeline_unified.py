@@ -128,21 +128,15 @@ def _json_safe(value: Any) -> Any:
     return repr(value)
 
 
-def compute_checkpoint_fingerprint(
-    *,
-    experiment_id: str,
-    left_corpora: Sequence[str],
-    right_corpora: Sequence[str],
-    resolved_mappings: Sequence[Tuple[List[str], List[str]]],
-    chunk_cfg: Dict[str, Any],
-    model: Dict[str, Any],
-    agg_cfg: Dict[str, Any],
-    pareto_cfg: Dict[str, Any],
-    selection_cfg: Dict[str, Any],
-    viz_cfg: Dict[str, Any],
+def compute_fingerprint(payload: Dict[str, Any]) -> str:
+    blob = json.dumps(_json_safe(payload), ensure_ascii=False, sort_keys=True).encode("utf-8")
+    return sha256(blob).hexdigest()
+
+
+def build_source_meta(
     corpora: Dict[str, Dict[str, Any]],
     used_corpora: Sequence[str],
-) -> str:
+) -> Dict[str, Dict[str, Any]]:
     source_meta: Dict[str, Dict[str, Any]] = {}
     for cid in used_corpora:
         spec = corpora.get(cid, {})
@@ -153,37 +147,128 @@ def compute_checkpoint_fingerprint(
             "size": stat.st_size,
             "mtime_ns": stat.st_mtime_ns,
         }
+    return source_meta
 
-    payload = {
+
+def build_checkpoint_fingerprints(
+    *,
+    experiment_id: str,
+    left_corpora: Sequence[str],
+    right_corpora: Sequence[str],
+    resolved_mappings: Sequence[Tuple[List[str], List[str]]],
+    chunk_cfg: Dict[str, Any],
+    model: Dict[str, Any],
+    retrieval_cfg: Dict[str, Any],
+    agg_cfg: Dict[str, Any],
+    pareto_cfg: Dict[str, Any],
+    selection_cfg: Dict[str, Any],
+    corpora: Dict[str, Dict[str, Any]],
+    used_corpora: Sequence[str],
+) -> Dict[str, str]:
+    source_meta = build_source_meta(corpora, used_corpora)
+    pipeline_version = "smart-checkpoints-v4-staged-fingerprints"
+
+    base_payload = {
         "experiment_id": experiment_id,
         "left_corpora": list(left_corpora),
         "right_corpora": list(right_corpora),
         "resolved_mappings": list(resolved_mappings),
-        "chunk_cfg": _json_safe(chunk_cfg),
-        "model": _json_safe(model),
-        "aggregation": _json_safe(agg_cfg),
-        "pareto": _json_safe(pareto_cfg),
-        "selection": _json_safe(selection_cfg),
-        "viz": _json_safe(viz_cfg),
         "source_meta": source_meta,
-        "pipeline_version": "smart-checkpoints-v3-pair-quota-retrieval",
+        "pipeline_version": pipeline_version,
     }
-    blob = json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
-    return sha256(blob).hexdigest()
+
+    fp_step1 = compute_fingerprint(base_payload)
+
+    fp_step2 = compute_fingerprint({
+        **base_payload,
+        "chunk_cfg": chunk_cfg,
+    })
+
+    preprocess_model = {
+        "min_lemma_length": model.get("min_lemma_length", 3),
+    }
+    fp_step3 = compute_fingerprint({
+        **base_payload,
+        "chunk_cfg": chunk_cfg,
+        "preprocess_model": preprocess_model,
+    })
+
+    tfidf_model = {
+        "ngram_range": model.get("ngram_range", (1, 3)),
+        "max_df": model.get("max_df", 0.5),
+        "min_df": model.get("min_df", 2),
+    }
+    fp_step4 = compute_fingerprint({
+        **base_payload,
+        "chunk_cfg": chunk_cfg,
+        "preprocess_model": preprocess_model,
+        "tfidf_model": tfidf_model,
+        "retrieval": retrieval_cfg,
+    })
+
+    metric_model = {
+        "soft_cosine_max_terms": model.get("soft_cosine_max_terms", 500),
+        "sw_match": model.get("sw_match", 2),
+        "sw_mismatch": model.get("sw_mismatch", -1),
+        "sw_gap": model.get("sw_gap", -1),
+        "sw_lev_bonus_threshold": model.get("sw_lev_bonus_threshold", 2),
+        "sw_max_seq_len": model.get("sw_max_seq_len", 300),
+    }
+    fp_step5 = compute_fingerprint({
+        **base_payload,
+        "chunk_cfg": chunk_cfg,
+        "preprocess_model": preprocess_model,
+        "tfidf_model": tfidf_model,
+        "retrieval": retrieval_cfg,
+        "metric_model": metric_model,
+    })
+
+    fp_step6 = compute_fingerprint({
+        **base_payload,
+        "chunk_cfg": chunk_cfg,
+        "preprocess_model": preprocess_model,
+        "tfidf_model": tfidf_model,
+        "retrieval": retrieval_cfg,
+        "metric_model": metric_model,
+        "pareto": pareto_cfg,
+        "aggregation": agg_cfg,
+    })
+
+    fp_step7 = compute_fingerprint({
+        **base_payload,
+        "chunk_cfg": chunk_cfg,
+        "preprocess_model": preprocess_model,
+        "tfidf_model": tfidf_model,
+        "retrieval": retrieval_cfg,
+        "metric_model": metric_model,
+        "pareto": pareto_cfg,
+        "aggregation": agg_cfg,
+        "selection": selection_cfg,
+    })
+
+    return {
+        "step_01_segmentation": fp_step1,
+        "step_02_chunking": fp_step2,
+        "step_03_preprocessing": fp_step3,
+        "step_04_retrieval": fp_step4,
+        "step_05_metrics": fp_step5,
+        "step_06_pareto_rank": fp_step6,
+        "step_07_graph_rows": fp_step7,
+    }
 
 
 class CheckpointManager:
     def __init__(
         self,
         root_dir: Path,
-        fingerprint: str,
+        step_fingerprints: Dict[str, str],
         logger: ProgressLogger,
         enabled: bool = True,
         force_from_step: Optional[int] = None,
     ):
         self.root_dir = Path(root_dir)
         self.root_dir.mkdir(parents=True, exist_ok=True)
-        self.fingerprint = fingerprint
+        self.step_fingerprints = dict(step_fingerprints)
         self.logger = logger
         self.enabled = enabled
         self.force_from_step = force_from_step
@@ -192,9 +277,12 @@ class CheckpointManager:
         if self.enabled:
             self._write_meta()
 
+    def _step_name(self, step_no: int, step_key: str) -> str:
+        return f"step_{step_no:02d}_{step_key}"
+
     def _write_meta(self) -> None:
         payload = {
-            "fingerprint": self.fingerprint,
+            "fingerprints": self.step_fingerprints,
             "updated_at_epoch": time.time(),
         }
         self.meta_path.write_text(
@@ -204,6 +292,13 @@ class CheckpointManager:
 
     def _step_path(self, step_no: int, step_key: str) -> Path:
         return self.root_dir / f"step_{step_no:02d}_{step_key}.pkl"
+
+    def fingerprint_for(self, step_no: int, step_key: str) -> str:
+        step_name = self._step_name(step_no, step_key)
+        fp = self.step_fingerprints.get(step_name)
+        if fp is None:
+            raise KeyError(f"Missing fingerprint for {step_name}")
+        return fp
 
     def load(self, step_no: int, step_key: str) -> Optional[Any]:
         if not self.enabled:
@@ -229,7 +324,8 @@ class CheckpointManager:
             self.logger.log(f"  Checkpoint ignored for step {step_no} ({step_key}): invalid payload type")
             return None
 
-        if payload.get("fingerprint") != self.fingerprint:
+        expected_fingerprint = self.fingerprint_for(step_no, step_key)
+        if payload.get("fingerprint") != expected_fingerprint:
             self.logger.log(
                 f"  Checkpoint ignored for step {step_no} ({step_key}): fingerprint mismatch"
             )
@@ -243,7 +339,7 @@ class CheckpointManager:
             return
         path = self._step_path(step_no, step_key)
         payload = {
-            "fingerprint": self.fingerprint,
+            "fingerprint": self.fingerprint_for(step_no, step_key),
             "step_no": step_no,
             "step_key": step_key,
             "saved_at_epoch": time.time(),
@@ -1280,23 +1376,23 @@ def run_experiment(
 
     used_corpora = sorted(set(left_corpora + right_corpora))
     chunk_cfg = dict(exp.get("chunking") or {})
-    checkpoint_fingerprint = compute_checkpoint_fingerprint(
+    step_fingerprints = build_checkpoint_fingerprints(
         experiment_id=experiment_id,
         left_corpora=left_corpora,
         right_corpora=right_corpora,
         resolved_mappings=resolved_mappings,
         chunk_cfg=chunk_cfg,
         model=model,
+        retrieval_cfg=retrieval_cfg,
         agg_cfg=agg_cfg,
         pareto_cfg=pareto_cfg,
         selection_cfg=selection_cfg,
-        viz_cfg=viz_cfg,
         corpora=corpora,
         used_corpora=used_corpora,
     )
     checkpoints = CheckpointManager(
         checkpoint_dir,
-        checkpoint_fingerprint,
+        step_fingerprints,
         logger,
         enabled=use_checkpoints,
         force_from_step=force_from_step,
@@ -1379,7 +1475,7 @@ def run_experiment(
         lemmatizer = LatinLemmatizer()
         step3_partial = Step3CorpusCheckpointManager(
             checkpoints.root_dir / "step_03_preprocessing_parts",
-            fingerprint=checkpoints.fingerprint,
+            fingerprint=checkpoints.fingerprint_for(3, "preprocessing"),
             logger=logger,
             enabled=checkpoints.enabled,
             force_from_step=checkpoints.force_from_step,
@@ -1492,7 +1588,7 @@ def run_experiment(
         partial_dir = checkpoints.root_dir / "step_05_metrics_parts"
         step5_partial = Step5PartialCheckpointManager(
             root_dir=partial_dir,
-            fingerprint=checkpoints.fingerprint,
+            fingerprint=checkpoints.fingerprint_for(5, "metrics"),
             logger=logger,
             enabled=checkpoints.enabled,
             force_from_step=checkpoints.force_from_step,

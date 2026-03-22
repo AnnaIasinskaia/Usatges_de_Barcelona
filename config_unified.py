@@ -58,7 +58,7 @@ CORPORA = {
         "color": "#9467bd",
     },
     "ExceptPetri": {
-        "path": DATA_DIR / "Exeptionis_Legum_Romanorum_Petri_v3.txt",
+        "path": DATA_DIR / "Exeptionis_Legum_Romanorum_Petri_v4.txt",
         "kind": "latin_source",
         "display_ru": "Извлечения\nПетра",
         "color": "#ff7f0e",
@@ -276,7 +276,40 @@ EXPERIMENTS = {
             {"from": ["@LATIN_SOURCES"], "to": ["UsatgesBarcelona"]},
         ],
         "chunking": {
-            "enabled": False,
+            "enabled": True,
+            "mode": "sliding_window_words",
+            "window_words": 180,
+            "overlap_words": 60,
+            "min_words": 40,
+            "per_corpus": {
+                "CorpusJuris": {"enabled": False},
+
+                "Evangelium": {
+                    "window_words": 140,
+                    "overlap_words": 50,
+                    "min_words": 40,
+                },
+
+                "LexVisigoth": {
+                    "window_words": 170,
+                    "overlap_words": 60,
+                    "min_words": 40,
+                },
+
+                "ExceptPetri": {
+                    "window_words": 170,
+                    "overlap_words": 50,
+                    "min_words": 40,
+                },
+
+                "Etymologiae": {
+                    "window_words": 170,
+                    "overlap_words": 60,
+                    "min_words": 40,
+                },
+
+                "UsatgesBarcelona": {"enabled": False},
+            },
         },
         "retrieval": dict(
             RETRIEVAL_DEFAULTS,
