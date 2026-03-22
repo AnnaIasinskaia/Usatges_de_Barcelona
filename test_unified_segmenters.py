@@ -23,7 +23,7 @@ TEST_CONFIG = {
     "seg_corpus_juris": (["data/Corpus_Juris_Civilis_v2.txt"], "CorpusJuris"),
     "seg_evangelium": (["data/Evangelium_v2.txt"], "Evangelium"),
     "seg_lex_visigothorum": (["data/legesvisigothor00zeumgoog_text.txt"], "LexVisigoth"),
-    "seg_exceptiones_petri": (["data/Exeptionis_Legum_Romanorum_Petri_v3.txt"], "ExceptPetri"),
+    "seg_exceptiones_petri": (["data/Exeptionis_Legum_Romanorum_Petri_v4.txt"], "ExceptPetri"),
     "seg_etymologiae": (["data/Isidori_Hispalensis_Episcopi_Etymologiarum_v2.txt"], "Etymologiae"),
     "seg_costums_tortosa": (["data/ObychaiTortosy1272to1279_v2.txt"], "ObychaiTortosy1272to1279"),
     "seg_lleida": (["data/ObychaiLleidy12271228_v2.txt"], "ObychaiLleidy12271228"),
