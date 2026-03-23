@@ -33,8 +33,8 @@ except Exception:  # pragma: no cover
 _NUM_SPLIT_RE = re.compile(r"(\d+)")
 
 
-def generic_numeric_sort_key(seg_id: str):
-    parts = _NUM_SPLIT_RE.split(str(seg_id))
+def natural_sort_key(value: str):
+    parts = _NUM_SPLIT_RE.split(str(value))
     key = []
     for part in parts:
         if not part:
@@ -44,6 +44,10 @@ def generic_numeric_sort_key(seg_id: str):
         else:
             key.append((1, part.casefold()))
     return tuple(key)
+
+
+def generic_numeric_sort_key(seg_id: str):
+    return natural_sort_key(seg_id)
 
 
 def _to_float(x: Any, default: float = 0.0) -> float:
@@ -76,14 +80,51 @@ def _resolve_edge_color(G, u: str, v: str, edge_color_by: str) -> str:
         "Use: left_corpus | right_corpus | neutral"
     )
 
+
+
 def render_node_sort_key(G, node_id: str):
     meta = G.nodes[node_id]
     return (
         int(meta.get("group_order", 10**9)),
-        meta.get("sort_key", generic_numeric_sort_key(str(node_id))),
+        meta.get("sort_key", natural_sort_key(str(node_id))),
         str(meta.get("label", node_id)),
     )
 
+
+def _stacked_group_positions(nodes: Sequence[str], G, x: float) -> Tuple[Dict[str, Tuple[float, float]], float]:
+    pos: Dict[str, Tuple[float, float]] = {}
+    y = 0.0
+    last_group = None
+    for n in nodes:
+        g = G.nodes[n].get("group", "")
+        if last_group is not None and g != last_group:
+            y += 0.8
+        pos[n] = (x, -y)
+        y += 1.0
+        last_group = g
+    return pos, max(1.0, y)
+
+
+def _spread_positions(nodes: Sequence[str], x: float, total_height: float) -> Dict[str, Tuple[float, float]]:
+    pos: Dict[str, Tuple[float, float]] = {}
+    n = len(nodes)
+    if n <= 0:
+        return pos
+    if n == 1:
+        pos[nodes[0]] = (x, -(total_height / 2.0))
+        return pos
+    step = total_height / float(max(1, n - 1))
+    for i, node in enumerate(nodes):
+        pos[node] = (x, -(i * step))
+    return pos
+
+
+def _should_spread_sparse_side(this_nodes: Sequence[str], other_nodes: Sequence[str]) -> bool:
+    if len(this_nodes) <= 1:
+        return True
+    if len(this_nodes) <= 8 and len(other_nodes) >= len(this_nodes) * 2:
+        return True
+    return False
 
 def build_node_metadata_from_graph_rows(
     graph_rows: Sequence[Dict[str, Any]],
@@ -188,28 +229,21 @@ def render_bipartite_graph(
     left_list = sorted(left_list, key=lambda n: render_node_sort_key(G, n))
     right_list = sorted(right_list, key=lambda n: render_node_sort_key(G, n))
 
+    left_pos_compact, left_h = _stacked_group_positions(left_list, G, x=0.0)
+    right_pos_compact, right_h = _stacked_group_positions(right_list, G, x=4.0)
+
     pos: Dict[str, Tuple[float, float]] = {}
-    y = 0.0
-    last_group = None
-    for n in left_list:
-        g = G.nodes[n].get("group", "")
-        if last_group is not None and g != last_group:
-            y += 0.8
-        pos[n] = (0.0, -y)
-        y += 1.0
-        last_group = g
+    spread_height = max(left_h, right_h)
 
-    total_left_h = max(1.0, y)
+    if _should_spread_sparse_side(left_list, right_list):
+        pos.update(_spread_positions(left_list, x=0.0, total_height=spread_height))
+    else:
+        pos.update(left_pos_compact)
 
-    y = 0.0
-    last_group = None
-    for n in right_list:
-        g = G.nodes[n].get("group", "")
-        if last_group is not None and g != last_group:
-            y += 0.8
-        pos[n] = (4.0, -y)
-        y += 1.0
-        last_group = g
+    if _should_spread_sparse_side(right_list, left_list):
+        pos.update(_spread_positions(right_list, x=4.0, total_height=spread_height))
+    else:
+        pos.update(right_pos_compact)
 
     fig_h = max(10, 0.35 * max(len(left_list), len(right_list)) + 6)
     plt.figure(figsize=(20, fig_h))
