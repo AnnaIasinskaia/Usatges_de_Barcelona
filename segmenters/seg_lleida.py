@@ -45,7 +45,7 @@ def normalize_article_no(raw_id: str) -> str:
 
 
 def make_segment_id(source_name: str, article_no: str) -> str:
-    return f"{source_name}_Art{article_no}"
+    return f"{source_name}_{article_no}"
 
 
 def clean_text(text: str) -> str:

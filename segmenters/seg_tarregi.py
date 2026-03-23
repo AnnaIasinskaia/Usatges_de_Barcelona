@@ -141,7 +141,7 @@ def segment_tarregi(
 
     preamble = _extract_preamble(core_text)
     if preamble and len(preamble.split()) >= min_words:
-        segments.append((f"{source_name}_Art0", preamble))
+        segments.append((f"{source_name}_Preamble", preamble))
 
     for idx, match in enumerate(matches):
         art_no = int(match.group(1))
@@ -151,7 +151,7 @@ def segment_tarregi(
         article_text = _normalize_block(block)
 
         if article_text and len(article_text.split()) >= min_words:
-            seg_id = f"{source_name}_Art{art_no}"
+            seg_id = f"{source_name}_{art_no}"
             segments.append((seg_id, article_text))
 
     return segments

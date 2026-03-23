@@ -191,7 +191,7 @@ def segment_privileges(text: str, source_name: str = "", debug: bool = False) ->
         if not latin_text:
             continue
 
-        seg_id = f"{prefix}_Art{art_num}"
+        seg_id = f"{prefix}_{art_num}"
         segments.append((seg_id, latin_text))
 
         if debug and len(segments) <= 10:

@@ -53,6 +53,22 @@ def _to_int(x: Any, default: int = 0) -> int:
     except Exception:
         return default
 
+def _resolve_edge_color(G, u: str, v: str, edge_color_by: str) -> str:
+    mode = str(edge_color_by or "left_corpus").strip()
+
+    if mode in {"left", "left_corpus"}:
+        return str(G.nodes[u].get("color", "#666666"))
+
+    if mode in {"right", "right_corpus"}:
+        return str(G.nodes[v].get("color", "#666666"))
+
+    if mode in {"neutral", "fixed", "gray", "grey"}:
+        return "#666666"
+
+    raise ValueError(
+        f"Unsupported edge_color_by={mode!r}. "
+        "Use: left_corpus | right_corpus | neutral"
+    )
 
 def build_node_metadata_from_graph_rows(
     graph_rows: Sequence[Dict[str, Any]],
@@ -123,6 +139,7 @@ def render_bipartite_graph(
     label_left: bool = True,
     label_right: bool = True,
     top_n_edges: Optional[int] = None,
+    edge_color_by: str = "left_corpus",  
 ) -> int:
     if plt is None or nx is None:
         return 0
@@ -213,7 +230,10 @@ def render_bipartite_graph(
             weights.append(4.0)   # толстые (фиксированная ширина)
         else:
             weights.append(1.5)   # обычные
-    edge_colors = [G.nodes[u].get("color", "#666666") for (u, v) in edgelist]
+    edge_colors = [
+        _resolve_edge_color(G, u, v, edge_color_by)
+        for (u, v) in edgelist
+    ]
 
     edge_kwargs = {}
     if not straight_edges:

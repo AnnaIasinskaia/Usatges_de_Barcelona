@@ -173,7 +173,7 @@ def _extract_articles(text: str, source_name: str) -> List[Tuple[str, str]]:
         article_text = clean_text(" ".join(lines))
 
         if article_text:
-            segments.append((f"{source_name}_Art{art_no}", article_text))
+            segments.append((f"{source_name}_{art_no}", article_text))
 
     return segments
 
@@ -195,7 +195,7 @@ def segment_orty(text: str, source_name: str, min_words: int = 10) -> List[Tuple
 
     preamble = _extract_preamble(text)
     if preamble and len(preamble.split()) >= min_words:
-        segments.append((f"{source_name}_Art0", preamble))
+        segments.append((f"{source_name}_Preamble", preamble))
 
     article_segments = _extract_articles(text, source_name)
     for seg_id, seg_text in article_segments:

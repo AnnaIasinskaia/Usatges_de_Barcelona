@@ -1832,6 +1832,7 @@ def run_experiment(
             label_left=bool(viz_cfg.get("label_left", True)),
             label_right=bool(viz_cfg.get("label_right", True)),
             top_n_edges=graph_top_n,
+            edge_color_by=str(viz_cfg.get("edge_color_by", "left_corpus")),
         )
         logger.log(f"  Wrote PNG: {path.name}")
 

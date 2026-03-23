@@ -173,7 +173,7 @@ def _extract_articles(text: str, source_name: str) -> List[Tuple[str, str]]:
         article_text = clean_text(" ".join(lines))
 
         if article_text:
-            segments.append((f"{source_name}_Art{art_no}", article_text))
+            segments.append((f"{source_name}_{art_no}", article_text))
 
     return segments
 
@@ -187,7 +187,7 @@ def segment_vald_aran(
     Unified-style segmentation for Querimònia.
 
     IDs:
-      ObychaiValdArana1313_Art0
+      ObychaiValdArana1313_Preamble
       ObychaiValdArana1313_Art1
       ...
       ObychaiValdArana1313_Art23
@@ -199,7 +199,7 @@ def segment_vald_aran(
 
     preamble = _extract_preamble(text)
     if preamble and len(preamble.split()) >= min_words:
-        segments.append((f"{source_name}_Art0", preamble))
+        segments.append((f"{source_name}_Preamble", preamble))
 
     for seg_id, seg_text in _extract_articles(text, source_name):
         if len(seg_text.split()) >= min_words:

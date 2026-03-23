@@ -64,7 +64,7 @@ def _is_title_header_num(dig_num: str) -> bool:
 
 
 def _make_segment_id(source_name: str, dig_num: str) -> str:
-    return f"{source_name}_Dig_{_normalize_dig_num(dig_num)}"
+    return f"{source_name}_{_normalize_dig_num(dig_num)}"
 
 
 def _is_page_line(s: str) -> bool:
@@ -190,7 +190,7 @@ def segment_corpus_juris(text: str, source_name: str) -> List[Tuple[str, str]]:
 
     def _sort_key(item: Tuple[str, str]):
         seg_id = item[0]
-        dig = seg_id.split("_Dig_", 1)[-1]
+        dig = seg_id.split("_", 1)[-1]
         head = dig[:-2] if dig.endswith("pr") else dig
         parts = []
         for p in head.split("."):

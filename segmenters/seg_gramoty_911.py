@@ -158,7 +158,7 @@ def segment_gramoty_911_unified(source_file, source_name):
 
     segments = []
     for doc_num, doc_text in raw_pairs:
-        seg_id = f"{source_name}_Doc{doc_num}"
+        seg_id = f"{source_name}_{doc_num}"
         segments.append((seg_id, doc_text))
 
     return validate_segments(segments, source_name)

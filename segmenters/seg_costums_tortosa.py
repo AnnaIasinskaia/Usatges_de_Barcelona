@@ -243,7 +243,7 @@ def _clean_article_text(raw: str) -> str:
 # Main segmentation
 # ---------------------------------------------------------------------------
 
-def segment_tortosa(text: str) -> List[Tuple[str, str, str]]:
+def segment_tortosa(text: str, source_name: str) -> List[Tuple[str, str, str]]:
     """
     Returns list of (article_id, article_text, language).
     Only first occurrence of each article number is kept.
@@ -264,19 +264,19 @@ def segment_tortosa(text: str) -> List[Tuple[str, str, str]]:
             continue
 
         lang = detect_language(art_text)
-        segments.append((f"Tort_{num}", art_text, lang))
+        segments.append((f"{source_name}_{num}", art_text, lang))
 
     return segments
 
 
-def segment_costums_tortosa(text: str) -> List[Tuple[str, str]]:
-    raw_triples = segment_tortosa(text)
+def segment_costums_tortosa(text: str, source_name: str) -> List[Tuple[str, str]]:
+    raw_triples = segment_tortosa(text, source_name)
     return [(seg_id, art_text) for seg_id, art_text, _ in raw_triples]
 
 
 def segment_costums_tortosa_unified(source_file, source_name):
     text = read_source_file(source_file)
-    raw_segments = segment_costums_tortosa(text)
+    raw_segments = segment_costums_tortosa(text, source_name)
     return validate_segments(raw_segments, source_name)
 
 

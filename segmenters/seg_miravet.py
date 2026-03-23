@@ -124,7 +124,7 @@ def _parse_articles(cleaned_core: str, source_name: str, min_words: int) -> List
 
     preamble_text = clean_text(cleaned_core[:primo_match.start()])
     if len(preamble_text.split()) >= min_words:
-        segments.append((f"{source_name}_Art0", preamble_text))
+        segments.append((f"{source_name}_Preamble", preamble_text))
 
     body = cleaned_core[primo_match.start():]
     markers = list(ARTICLE_MARKER_RE.finditer(body))
@@ -132,12 +132,12 @@ def _parse_articles(cleaned_core: str, source_name: str, min_words: int) -> List
     if not markers:
         primo_text = clean_text(body)
         if len(primo_text.split()) >= min_words:
-            segments.append((f"{source_name}_Art1", primo_text))
+            segments.append((f"{source_name}_1", primo_text))
         return segments
 
     primo_text = clean_text(body[:markers[0].start()])
     if len(primo_text.split()) >= min_words:
-        segments.append((f"{source_name}_Art1", primo_text))
+        segments.append((f"{source_name}_1", primo_text))
 
     seen_numbers = {0, 1}
     for i, m in enumerate(markers):
@@ -150,7 +150,7 @@ def _parse_articles(cleaned_core: str, source_name: str, min_words: int) -> List
         if not article_text:
             continue
         if len(article_text.split()) >= min_words:
-            segments.append((f"{source_name}_Art{num}", article_text))
+            segments.append((f"{source_name}_{num}", article_text))
             seen_numbers.add(num)
 
     return segments

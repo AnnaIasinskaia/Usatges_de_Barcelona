@@ -290,7 +290,7 @@ EXPERIMENTS = {
                     "min_words": 40,
                 },
 
-                "LexVisigoth": {
+                "LexVisigothorum": {
                     "window_words": 170,
                     "overlap_words": 60,
                     "min_words": 40,
@@ -366,25 +366,25 @@ EXPERIMENTS = {
             "per_corpus": {
                 "UsatgesBarcelona": {"enabled": False},
 
-                "ObychaiTortosy1272to1279": {
+                "CostumsDeTortosa": {
                     "window_words": 180,
                     "overlap_words": 60,
                     "min_words": 40,
                 },
 
-                "ObychaiValdArana1313": {
+                "CostumsDeValdAran": {
                     "window_words": 170,
                     "overlap_words": 50,
                     "min_words": 40,
                 },
 
-                "ObychaiLleidy12271228": {"enabled": False},
-                "ObychaiMiraveta1319": {"enabled": False},
-                "ObychaiOrty1296": {"enabled": False},
-                "RecognovrentProceres12831284": {"enabled": False},
-                "ObychaiTarregi1290E": {"enabled": False},
-                "PragmatikaZhaumeII1295": {"enabled": False},
-                "PragmatikaZhaumeII1301": {"enabled": False},
+                "CostumsDeLleida": {"enabled": False},
+                "ConstitucionesBaiulieMirabeti": {"enabled": False},
+                "CostumsDeOrta": {"enabled": False},
+                "RecognovrentProceres": {"enabled": False},
+                "CostumresDeTarrega": {"enabled": False},
+                "PragmaticaJaimeII1295": {"enabled": False},
+                "PragmaticaJaimeII1301": {"enabled": False},
             },
         },
         "retrieval": dict(
@@ -397,8 +397,8 @@ EXPERIMENTS = {
             per_right_leaf_cap=12,
             global_budget_after_merge=5000,
         ),
-        "pareto": dict(PARETO_DEFAULTS, keep_layers=1),
-        "selection": dict(SELECTION_DEFAULTS, graph_top_n=30),
+        "pareto": dict(PARETO_DEFAULTS, keep_layers=7),
+        "selection": dict(SELECTION_DEFAULTS, graph_top_n=50),
         "model": dict(MODEL_DEFAULTS),
         "logging": dict(LOGGING_DEFAULTS, scoring_progress_every=250),
         "aggregation": {
@@ -410,7 +410,7 @@ EXPERIMENTS = {
         "viz": {
             "enabled": True,
             "straight_edges": True,
-            "edge_color_by": "left_corpus",
+            "edge_color_by": "right_corpus",
             "label_left": True,
             "label_right": True,
             "top_n_edges": 50,
@@ -448,7 +448,7 @@ EXPERIMENTS = {
                     "min_words": 40,
                 },
 
-                "LexVisigoth": {
+                "LexVisigothorum": {
                     "window_words": 170,
                     "overlap_words": 60,
                     "min_words": 40,
@@ -468,12 +468,12 @@ EXPERIMENTS = {
 
                 "UsatgesBarcelona": {"enabled": False},
 
-                "Gramoty911": {
+                "Acta911": {
                     "window_words": 220,
                     "overlap_words": 80,
                     "min_words": 30,
                 },
-                "Gramoty12": {
+                "Acta12": {
                     "window_words": 220,
                     "overlap_words": 80,
                     "min_words": 30,
@@ -490,7 +490,7 @@ EXPERIMENTS = {
             per_right_leaf_cap=12,
             global_budget_after_merge=5000,
         ),
-        "pareto": dict(PARETO_DEFAULTS, keep_layers=1),
+        "pareto": dict(PARETO_DEFAULTS, keep_layers=2),
         "selection": dict(SELECTION_DEFAULTS, graph_top_n=50),
         "model": dict(MODEL_DEFAULTS),
         "logging": dict(LOGGING_DEFAULTS, scoring_progress_every=250),

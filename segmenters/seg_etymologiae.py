@@ -80,7 +80,7 @@ def _clean_block(text: str) -> str:
 
 def _make_segment_id(source_name: str, caput_roman: str) -> str:
     caput_no = _roman_to_int(caput_roman)
-    return f"{source_name}_C{caput_no}"
+    return f"{source_name}_{caput_no}"
 
 
 def segment_etymologiae(text: str, source_name: str) -> List[Tuple[str, str]]:

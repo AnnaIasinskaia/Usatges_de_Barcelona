@@ -44,7 +44,7 @@ def _cleanup_chapter_text(text: str) -> str:
 
 def _make_segment_id(source_name: str, gospel_name: str, chapter_num: str) -> str:
     code = _GOSPEL_CODE[_normalize_gospel_name(gospel_name)]
-    return f"{source_name}_{code}_{int(chapter_num)}"
+    return f"{source_name}_{code}.{int(chapter_num)}"
 
 
 def segment_evangelium(text: str, source_name: str) -> List[Tuple[str, str]]:

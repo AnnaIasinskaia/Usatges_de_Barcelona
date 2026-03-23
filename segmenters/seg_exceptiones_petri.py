@@ -313,7 +313,7 @@ def segment_exceptiones_petri(text: str, source_name: str, debug: bool = False) 
         text_lines = [current_heading] + current_body
         seg_text = _clean_joined_text(text_lines)
         if seg_text:
-            seg_id = f"{source_name}_L{current_book}_C{current_chapter}"
+            seg_id = f"{source_name}_{current_book}.{current_chapter}"
             segments.append((seg_id, seg_text))
         current_body = []
 
