@@ -535,6 +535,14 @@ def resolve_group_tokens(items: Sequence[str], groups: Dict[str, List[str]]) -> 
     return out
 
 
+def build_corpus_order_map(items: Sequence[str]) -> Dict[str, int]:
+    out: Dict[str, int] = {}
+    for i, cid in enumerate(items):
+        if cid not in out:
+            out[cid] = i
+    return out
+
+
 def segment_corpus(corpus_id: str, corpus_spec: Dict[str, Any], logger: ProgressLogger) -> List[Tuple[str, str]]:
     source_file = Path(corpus_spec["path"])
     if not source_file.exists():
@@ -1205,6 +1213,7 @@ def build_node_metadata(
     corpora: Dict[str, Dict[str, Any]],
     node_level: str,
     side: str,
+    corpus_order_map: Dict[str, int],
 ) -> Dict[str, Dict[str, Any]]:
     out: Dict[str, Dict[str, Any]] = {}
 
@@ -1220,17 +1229,21 @@ def build_node_metadata(
         color = corpus_spec.get("color", "#999999")
         label = corpus_spec.get("display_ru", seg.corpus) if node_level == "corpus" else node_id
 
-        doc_no = extract_doc_no(seg)
-        if doc_no is not None:
-            sort_key = (doc_no, node_id)
+        if node_level == "corpus":
+            sort_key = (0,)
         else:
-            sort_key = generic_numeric_sort_key(node_id)
+            doc_no = extract_doc_no(seg)
+            if doc_no is not None:
+                sort_key = (0, doc_no, generic_numeric_sort_key(node_id))
+            else:
+                sort_key = generic_numeric_sort_key(node_id)
 
         legend_label = corpus_spec.get("display_ru", seg.corpus)
 
         out[node_id] = {
             "side": side,
             "group": seg.corpus,
+            "group_order": int(corpus_order_map.get(seg.corpus, 10**9)),
             "label": label,
             "legend_label": legend_label,
             "color": color,
@@ -1366,6 +1379,8 @@ def run_experiment(
 
     left_corpora = resolve_group_tokens(exp["graph_sides"]["left"], groups)
     right_corpora = resolve_group_tokens(exp["graph_sides"]["right"], groups)
+    left_corpus_order = build_corpus_order_map(left_corpora)
+    right_corpus_order = build_corpus_order_map(right_corpora)
 
     mappings = exp.get("mappings") or [{"from": left_corpora, "to": right_corpora}]
     resolved_mappings: List[Tuple[List[str], List[str]]] = []
@@ -1759,8 +1774,20 @@ def run_experiment(
         write_csv(graph_rows, path)
         logger.log(f"  Wrote CSV: {path.name}")
 
-    left_meta = build_node_metadata(left_leaf, corpora, node_level=left_level, side="left")
-    right_meta = build_node_metadata(right_leaf, corpora, node_level=right_level, side="right")
+    left_meta = build_node_metadata(
+        left_leaf,
+        corpora,
+        node_level=left_level,
+        side="left",
+        corpus_order_map=left_corpus_order,
+    )
+    right_meta = build_node_metadata(
+        right_leaf,
+        corpora,
+        node_level=right_level,
+        side="right",
+        corpus_order_map=right_corpus_order,
+    )
 
     G = None
     if nx is not None:

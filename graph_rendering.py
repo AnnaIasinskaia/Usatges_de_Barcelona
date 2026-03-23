@@ -30,14 +30,20 @@ except Exception:  # pragma: no cover
     plt = None
 
 
-_NUM_RE = re.compile(r"\d+")
+_NUM_SPLIT_RE = re.compile(r"(\d+)")
 
 
-def generic_numeric_sort_key(seg_id: str) -> Tuple[int, str]:
-    nums = _NUM_RE.findall(str(seg_id))
-    if nums:
-        return (int(nums[0]), str(seg_id))
-    return (10**9, str(seg_id))
+def generic_numeric_sort_key(seg_id: str):
+    parts = _NUM_SPLIT_RE.split(str(seg_id))
+    key = []
+    for part in parts:
+        if not part:
+            continue
+        if part.isdigit():
+            key.append((0, int(part)))
+        else:
+            key.append((1, part.casefold()))
+    return tuple(key)
 
 
 def _to_float(x: Any, default: float = 0.0) -> float:
@@ -69,6 +75,15 @@ def _resolve_edge_color(G, u: str, v: str, edge_color_by: str) -> str:
         f"Unsupported edge_color_by={mode!r}. "
         "Use: left_corpus | right_corpus | neutral"
     )
+
+def render_node_sort_key(G, node_id: str):
+    meta = G.nodes[node_id]
+    return (
+        int(meta.get("group_order", 10**9)),
+        meta.get("sort_key", generic_numeric_sort_key(str(node_id))),
+        str(meta.get("label", node_id)),
+    )
+
 
 def build_node_metadata_from_graph_rows(
     graph_rows: Sequence[Dict[str, Any]],
@@ -170,11 +185,8 @@ def render_bipartite_graph(
     left_list = [n for n in G.nodes() if G.nodes[n].get("side") == "left"]
     right_list = [n for n in G.nodes() if G.nodes[n].get("side") == "right"]
 
-    left_list = sorted(left_list, key=lambda n: (str(G.nodes[n].get("group", "")), str(n)))
-    right_list = sorted(
-        right_list,
-        key=lambda n: G.nodes[n].get("sort_key", (10**9, 10**9, str(n))),
-    )
+    left_list = sorted(left_list, key=lambda n: render_node_sort_key(G, n))
+    right_list = sorted(right_list, key=lambda n: render_node_sort_key(G, n))
 
     pos: Dict[str, Tuple[float, float]] = {}
     y = 0.0
@@ -188,8 +200,16 @@ def render_bipartite_graph(
         last_group = g
 
     total_left_h = max(1.0, y)
-    for i, n in enumerate(right_list):
-        pos[n] = (4.0, -(i * (total_left_h / max(1, len(right_list)))))
+
+    y = 0.0
+    last_group = None
+    for n in right_list:
+        g = G.nodes[n].get("group", "")
+        if last_group is not None and g != last_group:
+            y += 0.8
+        pos[n] = (4.0, -y)
+        y += 1.0
+        last_group = g
 
     fig_h = max(10, 0.35 * max(len(left_list), len(right_list)) + 6)
     plt.figure(figsize=(20, fig_h))
