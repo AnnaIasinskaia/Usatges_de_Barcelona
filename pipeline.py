@@ -43,15 +43,15 @@ try:
 except Exception:  # pragma: no cover
     nx = None
 
-from preprocessing import LatinLemmatizer, preprocess_segment
-from alignment import smith_waterman
-from features import (
+from src.preprocessing import LatinLemmatizer, preprocess_segment
+from src.alignment import smith_waterman
+from src.features import (
     build_tfidf_matrix,
     compute_idf,
     soft_cosine_similarity,
     tesserae_score,
 )
-from graph_rendering import generic_numeric_sort_key, render_bipartite_graph
+from src.graph_rendering import generic_numeric_sort_key, render_bipartite_graph
 
 
 @dataclass(frozen=True)
@@ -548,7 +548,7 @@ def segment_corpus(corpus_id: str, corpus_spec: Dict[str, Any], logger: Progress
     if not source_file.exists():
         raise FileNotFoundError(f"Corpus file not found for {corpus_id}: {source_file}")
 
-    seg_mod = importlib.import_module("source_segmenters")
+    seg_mod = importlib.import_module("src.source_segmenters")
     raw = seg_mod.segment_source(source_file, corpus_id)
 
     if raw is None:

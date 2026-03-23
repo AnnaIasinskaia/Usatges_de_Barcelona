@@ -36,7 +36,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from preprocessing import LatinLemmatizer
+from src.preprocessing import LatinLemmatizer
 from pipeline_unified import (
     Segment,
     ProgressLogger,
@@ -45,7 +45,7 @@ from pipeline_unified import (
     lemmatize_segments,
     maybe_align,
 )
-from features import (
+from src.features import (
     build_tfidf_matrix,
     compute_idf,
     select_tfidf_candidates,

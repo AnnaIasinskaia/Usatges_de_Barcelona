@@ -3,11 +3,10 @@
 NLP-пайплайн для выявления текстуальных заимствований между
 **Usatges de Barcelona** и корпусом латинских, каталонских и дипломатических источников.
 
-Проект использует **единый unified-контур**:
-- одна точка входа: `pipeline_unified.py`
-- один конфиг экспериментов: `config_unified.py`
-- один диспетчер сегментеров: `source_segmenters.py`
-- один контракт сегментеров: `list[tuple[str, str]]`
+- точка входа: `pipeline.py`
+- конфиг экспериментов: `config.py`
+- диспетчер сегментеров: `source_segmenters.py`
+- контракт сегментеров: `list[tuple[str, str]]`
 
 ---
 
@@ -17,46 +16,15 @@ NLP-пайплайн для выявления текстуальных заим
 Основной запуск выполняется через:
 
 ```bash
-python pipeline_unified.py --config config_unified --experiment <experiment_name>
+python pipeline.py --config config --experiment <experiment_name>
 ```
 
 ### Конфиг
 Эксперименты и корпуса задаются в:
 
 ```bash
-config_unified.py
+config.py
 ```
-
-### Сегментеры
-Все сегментеры находятся в:
-
-```bash
-segmenters/
-```
-
-Они работают по единому правилу:
-
-```python
-segment_<source>_unified(source_file, source_name) -> list[tuple[str, str]]
-```
-
-Каждый сегмент — это строго пара:
-
-```python
-(segment_id, segment_text)
-```
-
-`segment_id` содержит реальную структурную идентичность фрагмента внутри источника
-(номер статьи, главы, дигеста, грамоты и т.д.).
-
-### Диспетчер сегментации
-Маршрутизация по источникам централизована в:
-
-```bash
-source_segmenters.py
-```
-
----
 
 ## Метод
 
@@ -138,20 +106,22 @@ data/
 
 ## Эксперименты
 
-В `config_unified.py` сейчас заданы следующие основные эксперименты:
+В `config.py` сейчас заданы следующие основные эксперименты:
 
 | Эксперимент | Смысл |
 |---|---|
 | `test` | smoke test: `Evangelium → UsatgesBarcelona` |
 | `latin_to_usatges` | латинские источники → Usatges |
 | `left_to_gramoty` | латинские источники + Usatges → грамоты |
+| `usatges_to_other_codes` | Usatges → обычаи других городов |
 
 Примеры запуска:
 
 ```bash
-python pipeline_unified.py --config config_unified --experiment test
-python pipeline_unified.py --config config_unified --experiment latin_to_usatges
-python pipeline_unified.py --config config_unified --experiment left_to_gramoty
+python pipeline.py --config config --experiment test
+python pipeline.py --config config --experiment latin_to_usatges
+python pipeline.py --config config --experiment left_to_gramoty
+python pipeline.py --config config --experiment usatges_to_other_codes
 ```
 
 ---
@@ -164,7 +134,7 @@ python pipeline_unified.py --config config_unified --experiment left_to_gramoty
 Основной тестовый прогон:
 
 ```bash
-python test_unified_segmenters.py
+python utils/test_unified_segmenters.py
 ```
 
 Для ручной проверки отдельного сегментера:
@@ -245,8 +215,8 @@ pip install -r requirements.txt
    ```
 3. Запустить нужный эксперимент:
    ```bash
-   python pipeline_unified.py --config config_unified --experiment latin_to_usatges
+   python pipeline.py --config config --experiment test
    ```
-4. Смотреть результаты в директории, указанной в `config_unified.py`
+4. Смотреть результаты в директории, указанной в `config.py`
 
 

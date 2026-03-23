@@ -23,7 +23,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List
 
-from graph_rendering import build_node_metadata_from_graph_rows, render_bipartite_graph
+from src.graph_rendering import build_node_metadata_from_graph_rows, render_bipartite_graph
 
 
 class ProgressLogger:

@@ -28,7 +28,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from preprocessing import LatinLemmatizer
+from src.preprocessing import LatinLemmatizer
 from pipeline_unified import (
     Segment,
     ProgressLogger,
@@ -38,7 +38,7 @@ from pipeline_unified import (
     lemmatize_segments,
     compute_borrow_score,
 )
-from features import (
+from src.features import (
     build_tfidf_matrix,
     compute_idf,
     select_tfidf_candidates,

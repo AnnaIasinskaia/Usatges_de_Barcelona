@@ -39,7 +39,7 @@ from pathlib import Path
 from statistics import median
 from typing import Iterable
 
-from preprocessing import (
+from src.preprocessing import (
     LatinLemmatizer,
     normalize_latin,
     tokenize_latin,

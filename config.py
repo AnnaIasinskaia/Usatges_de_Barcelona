@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-config_unified_refactored.py
+config.py
 
 Конфиг для новой unified-архитектуры.
 
@@ -33,7 +33,7 @@ from __future__ import annotations
 from pathlib import Path
 
 DATA_DIR = Path("data")
-OUTPUT_ROOT = Path("output_unified")
+OUTPUT_ROOT = Path("output")
 
 
 # ---------------------- Корпуса ----------------------

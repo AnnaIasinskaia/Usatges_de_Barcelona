@@ -4,7 +4,7 @@ Step 6: Smith-Waterman local text alignment.
 import numpy as np
 import logging
 from typing import List, Tuple
-from features import levenshtein_distance
+from src.features import levenshtein_distance
 
 log = logging.getLogger(__name__)
 
