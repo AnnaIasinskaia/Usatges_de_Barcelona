@@ -14,14 +14,22 @@ borrowing_map.py
 1) .gexf
 2) .csv с рёбрами
 
+Доступные layout:
+- spring
+- kamada_kawai
+- mds
+- spectral
+
 Примеры:
     python borrowing_map.py \
         --input output/catalan_plus_usatges_upper_triangle/graph.gexf \
-        --output borrowing_map.png
+        --output borrowing_map.png \
+        --layout mds
 
     python borrowing_map.py \
         --input output/catalan_plus_usatges_upper_triangle/graph.csv \
-        --output borrowing_map.png
+        --output borrowing_map.png \
+        --layout kamada_kawai
 """
 
 from __future__ import annotations
@@ -33,6 +41,7 @@ from typing import Dict, Iterable, Optional, Tuple
 
 import matplotlib.pyplot as plt
 import networkx as nx
+import numpy as np
 import pandas as pd
 
 
@@ -56,6 +65,7 @@ KNOWN_NODE_STYLES = {
     "Acta911": {"label": "Грамоты\nIX–XI вв.", "color": "#2c7fb8"},
     "Acta12": {"label": "Грамоты\nXII в.", "color": "#f03b20"},
     "UsatgesBarcelona": {"label": "Барселонские\nОбычаи", "color": "#17becf"},
+    "CostumsDePerpinya": {"label": "Обычаи\nПерпиньяна", "color": "#6b1fb1"},
 }
 
 FALLBACK_COLOR = "#4c78a8"
@@ -175,7 +185,6 @@ def build_graph_from_csv(csv_path: Path) -> nx.Graph:
 def build_graph_from_gexf(gexf_path: Path) -> nx.Graph:
     G_in = nx.read_gexf(gexf_path)
 
-    # На всякий случай нормализуем имена
     H = nx.DiGraph() if G_in.is_directed() else nx.Graph()
 
     for node, attrs in G_in.nodes(data=True):
@@ -196,6 +205,100 @@ def load_graph(input_path: Path) -> nx.Graph:
     raise ValueError("Поддерживаются только .gexf и .csv")
 
 
+def build_distance_graph(G: nx.Graph, eps: float = 1e-9) -> nx.Graph:
+    """
+    Переводит similarity-weights в distance-weights для метрических layout.
+    Чем сильнее связь, тем меньше расстояние.
+    """
+    H = nx.Graph()
+    for node, attrs in G.nodes(data=True):
+        H.add_node(node, **attrs)
+
+    for u, v, attrs in G.edges(data=True):
+        weight = attrs.get("weight", 1.0)
+        try:
+            weight = float(weight)
+        except Exception:
+            weight = 1.0
+        distance = 1.0 / max(weight, eps)
+        H.add_edge(u, v, weight=weight, distance=distance)
+
+    return H
+
+
+def classical_mds_from_distances(
+    D: np.ndarray,
+    nodes: list[str],
+    scale: float = 1.0,
+) -> Dict[str, Tuple[float, float]]:
+    """
+    Classical MDS по матрице расстояний.
+    """
+    n = D.shape[0]
+    if n == 1:
+        return {nodes[0]: (0.0, 0.0)}
+
+    D2 = D ** 2
+    J = np.eye(n) - np.ones((n, n)) / n
+    B = -0.5 * J @ D2 @ J
+
+    eigvals, eigvecs = np.linalg.eigh(B)
+    idx = np.argsort(eigvals)[::-1]
+    eigvals = eigvals[idx]
+    eigvecs = eigvecs[:, idx]
+
+    positive = eigvals > 1e-12
+    eigvals = eigvals[positive]
+    eigvecs = eigvecs[:, positive]
+
+    if eigvals.size == 0:
+        coords = np.zeros((n, 2), dtype=float)
+    elif eigvals.size == 1:
+        coords_1d = eigvecs[:, :1] * np.sqrt(eigvals[:1])
+        coords = np.hstack([coords_1d, np.zeros((n, 1), dtype=float)])
+    else:
+        coords = eigvecs[:, :2] * np.sqrt(eigvals[:2])
+
+    max_abs = np.abs(coords).max()
+    if max_abs > 0:
+        coords = coords / max_abs * scale
+
+    return {
+        node: (float(coords[i, 0]), float(coords[i, 1]))
+        for i, node in enumerate(nodes)
+    }
+
+
+def compute_mds_layout(G: nx.Graph) -> Dict[str, Tuple[float, float]]:
+    H = build_distance_graph(G)
+    nodes = list(H.nodes())
+    n = len(nodes)
+
+    if n == 0:
+        return {}
+    if n == 1:
+        return {nodes[0]: (0.0, 0.0)}
+
+    path_lengths = dict(nx.all_pairs_dijkstra_path_length(H, weight="distance"))
+
+    finite_values = []
+    for u in nodes:
+        for v, dist in path_lengths.get(u, {}).items():
+            if u != v and np.isfinite(dist):
+                finite_values.append(float(dist))
+
+    fallback = (max(finite_values) * 2.0) if finite_values else 1.0
+
+    D = np.zeros((n, n), dtype=float)
+    for i, u in enumerate(nodes):
+        for j, v in enumerate(nodes):
+            if i == j:
+                continue
+            D[i, j] = path_lengths.get(u, {}).get(v, fallback)
+
+    return classical_mds_from_distances(D, nodes, scale=1.25)
+
+
 def compute_layout(
     G: nx.Graph,
     seed: int = 42,
@@ -210,7 +313,14 @@ def compute_layout(
         k = 2.2 / math.sqrt(max(G.number_of_nodes(), 1))
 
     if layout == "kamada_kawai":
-        return nx.kamada_kawai_layout(G, weight="weight")
+        H = build_distance_graph(G)
+        return nx.kamada_kawai_layout(H, dist=nx.floyd_warshall_numpy(H, weight="distance"))
+
+    if layout == "mds":
+        return compute_mds_layout(G)
+
+    if layout == "spectral":
+        return nx.spectral_layout(G, weight="weight", scale=1.25)
 
     return nx.spring_layout(
         G,
@@ -250,7 +360,6 @@ def compute_label_positions(
             dx, dy = 1.0, 0.0
             norm = 1.0
 
-        # matplotlib node_size задаётся в points^2; переводим грубо в радиус
         radius_hint = math.sqrt(max(node_sizes.get(node, 900.0), 1.0)) / 900.0
         offset = base_offset + radius_hint
 
@@ -297,11 +406,10 @@ def draw_map(
         node_sizes_list.append(size)
         node_sizes_map[node] = size
 
-    # Все линии одинаковой толщины, но чуть светлее для читаемости
     nx.draw_networkx_edges(
         G,
         pos,
-        width=1.0,
+        width=2.0,
         alpha=0.30,
         edge_color="#7a7a7a",
         ax=ax,
@@ -344,7 +452,7 @@ def draw_map(
             ),
         )
 
-    ax.set_title(title, fontsize=16)
+    #ax.set_title(title, fontsize=16)
     ax.axis("off")
     ax.margins(0.14)
     plt.tight_layout(pad=1.2)
@@ -358,7 +466,11 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", required=True, help="Путь к graph.gexf или graph.csv")
     parser.add_argument("--output", required=True, help="Путь к итоговой PNG")
-    parser.add_argument("--layout", default="spring", choices=["spring", "kamada_kawai"])
+    parser.add_argument(
+        "--layout",
+        default="spring",
+        choices=["spring", "kamada_kawai", "mds", "spectral"],
+    )
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--iterations", type=int, default=500)
     parser.add_argument("--k", type=float, default=None)
@@ -378,7 +490,6 @@ def main() -> None:
     if G.number_of_nodes() == 0:
         raise SystemExit("Граф пустой")
 
-    # Убираем изолированные узлы, если вдруг они есть
     isolates = list(nx.isolates(G))
     if isolates:
         G.remove_nodes_from(isolates)
@@ -403,6 +514,7 @@ def main() -> None:
 
     print(f"[OK] Saved map to: {output_path}")
     print(f"[OK] Nodes: {G.number_of_nodes()}, edges: {G.number_of_edges()}")
+    print(f"[OK] Layout: {args.layout}")
 
 
 if __name__ == "__main__":

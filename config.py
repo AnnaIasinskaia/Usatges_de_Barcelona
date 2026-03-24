@@ -392,6 +392,7 @@ EXPERIMENTS = {
                 "CostumresDeTarrega": {"enabled": False},
                 "PragmaticaJaimeII1295": {"enabled": False},
                 "PragmaticaJaimeII1301": {"enabled": False},
+                "CostumsDePerpinya": {"enabled": False},
             },
         },
         "retrieval": dict(
@@ -541,6 +542,7 @@ EXPERIMENTS = {
                     "CostumsDeValdAran",
                     "PragmaticaJaimeII1295",
                     "PragmaticaJaimeII1301",
+                    "CostumsDePerpinya",
                     "UsatgesBarcelona",
                 ],
             },
@@ -554,6 +556,7 @@ EXPERIMENTS = {
                     "CostumsDeValdAran",
                     "PragmaticaJaimeII1295",
                     "PragmaticaJaimeII1301",
+                    "CostumsDePerpinya",
                     "UsatgesBarcelona",
                 ],
             },
@@ -566,6 +569,7 @@ EXPERIMENTS = {
                     "CostumsDeValdAran",
                     "PragmaticaJaimeII1295",
                     "PragmaticaJaimeII1301",
+                    "CostumsDePerpinya",
                     "UsatgesBarcelona",
                 ],
             },
@@ -577,6 +581,7 @@ EXPERIMENTS = {
                     "CostumsDeValdAran",
                     "PragmaticaJaimeII1295",
                     "PragmaticaJaimeII1301",
+                    "CostumsDePerpinya",
                     "UsatgesBarcelona",
                 ],
             },
@@ -587,6 +592,7 @@ EXPERIMENTS = {
                     "CostumsDeValdAran",
                     "PragmaticaJaimeII1295",
                     "PragmaticaJaimeII1301",
+                    "CostumsDePerpinya",
                     "UsatgesBarcelona",
                 ],
             },
@@ -596,6 +602,7 @@ EXPERIMENTS = {
                     "CostumsDeValdAran",
                     "PragmaticaJaimeII1295",
                     "PragmaticaJaimeII1301",
+                    "CostumsDePerpinya",
                     "UsatgesBarcelona",
                 ],
             },
@@ -604,6 +611,7 @@ EXPERIMENTS = {
                 "to": [
                     "PragmaticaJaimeII1295",
                     "PragmaticaJaimeII1301",
+                    "CostumsDePerpinya",
                     "UsatgesBarcelona",
                 ],
             },
@@ -611,11 +619,19 @@ EXPERIMENTS = {
                 "from": ["PragmaticaJaimeII1295"],
                 "to": [
                     "PragmaticaJaimeII1301",
+                    "CostumsDePerpinya",
                     "UsatgesBarcelona",
                 ],
             },
             {
                 "from": ["PragmaticaJaimeII1301"],
+                "to": [
+                    "CostumsDePerpinya",
+                    "UsatgesBarcelona",
+                ],
+            },
+            {
+                "from": ["CostumsDePerpinya"],
                 "to": [
                     "UsatgesBarcelona",
                 ],
@@ -649,6 +665,7 @@ EXPERIMENTS = {
                 "CostumresDeTarrega": {"enabled": False},
                 "PragmaticaJaimeII1295": {"enabled": False},
                 "PragmaticaJaimeII1301": {"enabled": False},
+                "CostumsDePerpinya": {"enabled": False},
             },
         },
         "retrieval": dict(
