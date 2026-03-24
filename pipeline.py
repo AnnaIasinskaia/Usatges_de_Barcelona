@@ -1266,6 +1266,64 @@ def write_csv(rows: Sequence[Dict[str, Any]], path: Path) -> None:
             w.writerow(r)
 
 
+def _hex_to_rgb_triplet(color: str) -> Tuple[int, int, int]:
+    s = str(color or "").strip()
+    if s.startswith("#"):
+        s = s[1:]
+    if len(s) == 3:
+        s = "".join(ch * 2 for ch in s)
+    if len(s) != 6:
+        return (153, 153, 153)
+    try:
+        return (int(s[0:2], 16), int(s[2:4], 16), int(s[4:6], 16))
+    except Exception:
+        return (153, 153, 153)
+
+
+def _gephi_node_sort_key(meta: Dict[str, Any]) -> Tuple[Any, ...]:
+    return (
+        int(meta.get("group_order", 10**9)),
+        meta.get("sort_key", generic_numeric_sort_key(str(meta.get("label", "")))),
+        str(meta.get("label", "")),
+    )
+
+
+def _build_gephi_ready_positions(
+    active_left_meta: Dict[str, Dict[str, Any]],
+    active_right_meta: Dict[str, Dict[str, Any]],
+) -> Dict[str, Dict[str, float]]:
+    positions: Dict[str, Dict[str, float]] = {}
+
+    x_left = 0.0
+    x_right = 2000.0
+    y_step = 120.0
+    group_gap = 80.0
+
+    def place_side(meta_by_id: Dict[str, Dict[str, Any]], x: float) -> None:
+        ordered = sorted(meta_by_id.items(), key=lambda kv: _gephi_node_sort_key(kv[1]))
+        y = 0.0
+        last_group = None
+        for node_id, meta in ordered:
+            group = str(meta.get("group", ""))
+            if last_group is not None and group != last_group:
+                y += group_gap
+            positions[node_id] = {"x": float(x), "y": float(-y), "z": 0.0}
+            y += y_step
+            last_group = group
+
+    place_side(active_left_meta, x_left)
+    place_side(active_right_meta, x_right)
+    return positions
+
+
+def _edge_thickness_from_weights(weight: float, min_weight: float, max_weight: float) -> float:
+    if max_weight <= min_weight:
+        return 2.5
+    alpha = (float(weight) - float(min_weight)) / float(max_weight - min_weight)
+    alpha = max(0.0, min(1.0, alpha))
+    return 1.5 + alpha * 5.0
+
+
 def _make_gexf_safe_attrs(attrs: Dict[str, Any]) -> Dict[str, Any]:
     safe: Dict[str, Any] = {}
     for key, value in attrs.items():
@@ -1810,22 +1868,64 @@ def run_experiment(
 
         if bool(output_cfg.get("write_gexf")):
             path = out_dir / "graph.gexf"
+
+            active_left_ids = {
+                str(r["left_node"])
+                for r in graph_rows
+                if str(r.get("left_node", "")) in left_meta
+            }
+            active_right_ids = {
+                str(r["right_node"])
+                for r in graph_rows
+                if str(r.get("right_node", "")) in right_meta
+            }
+
+            active_left_meta = {nid: left_meta[nid] for nid in active_left_ids}
+            active_right_meta = {nid: right_meta[nid] for nid in active_right_ids}
+            gephi_pos = _build_gephi_ready_positions(active_left_meta, active_right_meta)
+
+            weights_all = [float(r.get("weight", 0.0)) for r in graph_rows] or [0.0]
+            min_weight = min(weights_all)
+            max_weight = max(weights_all)
+
             G_gexf = nx.DiGraph()
-            for nid, meta in left_meta.items():
-                G_gexf.add_node(nid, **_make_gexf_safe_attrs(meta))
-            for nid, meta in right_meta.items():
-                G_gexf.add_node(nid, **_make_gexf_safe_attrs(meta))
+
+            for nid, meta in active_left_meta.items():
+                red, green, blue = _hex_to_rgb_triplet(str(meta.get("color", "#999999")))
+                node_attrs = _make_gexf_safe_attrs(meta)
+                node_attrs["viz"] = {
+                    "color": {"r": red, "g": green, "b": blue, "a": 1.0},
+                    "position": gephi_pos.get(nid, {"x": 0.0, "y": 0.0, "z": 0.0}),
+                    "size": 18.0,
+                }
+                G_gexf.add_node(nid, **node_attrs)
+
+            for nid, meta in active_right_meta.items():
+                red, green, blue = _hex_to_rgb_triplet(str(meta.get("color", "#999999")))
+                node_attrs = _make_gexf_safe_attrs(meta)
+                node_attrs["viz"] = {
+                    "color": {"r": red, "g": green, "b": blue, "a": 1.0},
+                    "position": gephi_pos.get(nid, {"x": 2000.0, "y": 0.0, "z": 0.0}),
+                    "size": 24.0,
+                }
+                G_gexf.add_node(nid, **node_attrs)
+
             for r in graph_rows:
                 u = str(r["left_node"])
                 v = str(r["right_node"])
-                if u in left_meta and v in right_meta:
+                if u in active_left_meta and v in active_right_meta:
+                    edge_weight = float(r.get("weight", 0.0))
                     edge_attrs = _make_gexf_safe_attrs({
-                        "weight": float(r.get("weight", 0.0)),
+                        "weight": edge_weight,
                         "hit_count": int(r.get("hit_count", 1)),
                         "best_rank": int(r.get("best_rank", 0)),
                         "best_rank_score": float(r.get("best_rank_score", 0.0)),
                         "left_level": r.get("left_level", ""),
                         "right_level": r.get("right_level", ""),
+                        "left_label": active_left_meta[u].get("label", u),
+                        "right_label": active_right_meta[v].get("label", v),
+                        "left_group": active_left_meta[u].get("group", ""),
+                        "right_group": active_right_meta[v].get("group", ""),
                         "left_corpus": r.get("left_corpus", ""),
                         "right_corpus": r.get("right_corpus", ""),
                         "best_left_leaf_id": r.get("best_left_leaf_id", ""),
@@ -1839,10 +1939,20 @@ def run_experiment(
                         "best_cos_sim": float(r.get("best_cos_sim", 0.0)),
                         "best_pareto_layer": int(r.get("best_pareto_layer", 0)),
                     })
+                    edge_attrs["viz"] = {
+                        "thickness": _edge_thickness_from_weights(
+                            edge_weight,
+                            min_weight=min_weight,
+                            max_weight=max_weight,
+                        )
+                    }
                     G_gexf.add_edge(u, v, **edge_attrs)
 
             nx.write_gexf(G_gexf, path)
-            logger.log(f"  Wrote GEXF: {path.name}")
+            logger.log(
+                f"  Wrote GEXF: {path.name} "
+                f"(active_nodes={G_gexf.number_of_nodes()}, active_edges={G_gexf.number_of_edges()})"
+            )
 
     if bool(viz_cfg.get("enabled")) and bool(output_cfg.get("write_png")):
         path = out_dir / "graph.png"
