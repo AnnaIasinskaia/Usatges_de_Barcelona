@@ -271,6 +271,11 @@ def segment_tortosa(text: str, source_name: str) -> List[Tuple[str, str, str]]:
 
 def segment_costums_tortosa(text: str, source_name: str) -> List[Tuple[str, str]]:
     raw_triples = segment_tortosa(text, source_name)
+    
+    # оставить только книгу 9
+    raw_triples = [(sid, txt, lang) for sid, txt, lang in raw_triples if sid.split("_")[1].startswith("9.")]
+
+    
     return [(seg_id, art_text) for seg_id, art_text, _ in raw_triples]
 
 
