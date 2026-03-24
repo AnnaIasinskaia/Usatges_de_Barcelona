@@ -516,4 +516,168 @@ EXPERIMENTS = {
             "write_png": True,
         },
     },
+    "catalan_plus_usatges_upper_triangle": {
+        "description": "Все каталонские источники + Usatges, верхний треугольник без self-mapping",
+        "graph_sides": {
+            "left": ["@CATALAN_SOURCES", "UsatgesBarcelona"],
+            "right": ["@CATALAN_SOURCES", "UsatgesBarcelona"],
+        },
+        "mappings": [
+            {
+                "from": ["CostumsDeTortosa"],
+                "to": [
+                    "CostumsDeLleida",
+                    "ConstitucionesBaiulieMirabeti",
+                    "CostumsDeOrta",
+                    "RecognovrentProceres",
+                    "CostumresDeTarrega",
+                    "CostumsDeValdAran",
+                    "PragmaticaJaimeII1295",
+                    "PragmaticaJaimeII1301",
+                    "UsatgesBarcelona",
+                ],
+            },
+            {
+                "from": ["CostumsDeLleida"],
+                "to": [
+                    "ConstitucionesBaiulieMirabeti",
+                    "CostumsDeOrta",
+                    "RecognovrentProceres",
+                    "CostumresDeTarrega",
+                    "CostumsDeValdAran",
+                    "PragmaticaJaimeII1295",
+                    "PragmaticaJaimeII1301",
+                    "UsatgesBarcelona",
+                ],
+            },
+            {
+                "from": ["ConstitucionesBaiulieMirabeti"],
+                "to": [
+                    "CostumsDeOrta",
+                    "RecognovrentProceres",
+                    "CostumresDeTarrega",
+                    "CostumsDeValdAran",
+                    "PragmaticaJaimeII1295",
+                    "PragmaticaJaimeII1301",
+                    "UsatgesBarcelona",
+                ],
+            },
+            {
+                "from": ["CostumsDeOrta"],
+                "to": [
+                    "RecognovrentProceres",
+                    "CostumresDeTarrega",
+                    "CostumsDeValdAran",
+                    "PragmaticaJaimeII1295",
+                    "PragmaticaJaimeII1301",
+                    "UsatgesBarcelona",
+                ],
+            },
+            {
+                "from": ["RecognovrentProceres"],
+                "to": [
+                    "CostumresDeTarrega",
+                    "CostumsDeValdAran",
+                    "PragmaticaJaimeII1295",
+                    "PragmaticaJaimeII1301",
+                    "UsatgesBarcelona",
+                ],
+            },
+            {
+                "from": ["CostumresDeTarrega"],
+                "to": [
+                    "CostumsDeValdAran",
+                    "PragmaticaJaimeII1295",
+                    "PragmaticaJaimeII1301",
+                    "UsatgesBarcelona",
+                ],
+            },
+            {
+                "from": ["CostumsDeValdAran"],
+                "to": [
+                    "PragmaticaJaimeII1295",
+                    "PragmaticaJaimeII1301",
+                    "UsatgesBarcelona",
+                ],
+            },
+            {
+                "from": ["PragmaticaJaimeII1295"],
+                "to": [
+                    "PragmaticaJaimeII1301",
+                    "UsatgesBarcelona",
+                ],
+            },
+            {
+                "from": ["PragmaticaJaimeII1301"],
+                "to": [
+                    "UsatgesBarcelona",
+                ],
+            },
+        ],
+        "chunking": {
+            "enabled": True,
+            "mode": "sliding_window_words",
+            "window_words": 180,
+            "overlap_words": 60,
+            "min_words": 40,
+            "per_corpus": {
+                "UsatgesBarcelona": {"enabled": False},
+
+                "CostumsDeTortosa": {
+                    "window_words": 180,
+                    "overlap_words": 60,
+                    "min_words": 40,
+                },
+
+                "CostumsDeValdAran": {
+                    "window_words": 170,
+                    "overlap_words": 50,
+                    "min_words": 40,
+                },
+
+                "CostumsDeLleida": {"enabled": False},
+                "ConstitucionesBaiulieMirabeti": {"enabled": False},
+                "CostumsDeOrta": {"enabled": False},
+                "RecognovrentProceres": {"enabled": False},
+                "CostumresDeTarrega": {"enabled": False},
+                "PragmaticaJaimeII1295": {"enabled": False},
+                "PragmaticaJaimeII1301": {"enabled": False},
+            },
+        },
+        "retrieval": dict(
+            RETRIEVAL_DEFAULTS,
+            mode="pair_quota",
+            budget=16000,
+            pair_budget_strategy="weighted_sqrt",
+            min_pair_budget=300,
+            per_left_leaf_cap=12,
+            per_right_leaf_cap=12,
+            global_budget_after_merge=16000,
+        ),
+        "pareto": dict(PARETO_DEFAULTS, keep_layers=11),
+        "selection": dict(SELECTION_DEFAULTS, graph_top_n=100),
+        "model": dict(MODEL_DEFAULTS),
+        "logging": dict(LOGGING_DEFAULTS, scoring_progress_every=250),
+        "aggregation": {
+            "left_node_level": "corpus",
+            "right_node_level": "corpus",
+            "weight_mode": "max",
+            "min_hits": 1,
+        },
+        "viz": {
+            "enabled": True,
+            "straight_edges": True,
+            "edge_color_by": "left_corpus",
+            "label_left": True,
+            "label_right": True,
+            "top_n_edges": 100,
+        },
+        "output": {
+            "dir": OUTPUT_ROOT / "catalan_plus_usatges_upper_triangle",
+            "write_detail_csv": True,
+            "write_graph_csv": True,
+            "write_gexf": True,
+            "write_png": True,
+        },
+    },
 }
