@@ -37,6 +37,7 @@ TEST_CONFIG = {
     "seg_gramoty_911": (["data/Gramoty911.txt"], "Acta911"),
     "seg_gramoty_12": (["data/Gramoty12.txt"], "Acta12"),
     "seg_usatges": (["data/Bastardas_Usatges_de_Barcelona_djvu.txt"], "UsatgesBarcelona"),
+    "seg_perpignan":(["data/Customs_of_Perpignan_v2.txt"],"CostumsDePerpinya"),
 }
 
 

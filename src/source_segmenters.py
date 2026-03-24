@@ -32,6 +32,7 @@ from segmenters.seg_zhaime1301 import segment_zhaime1301_unified
 from segmenters.seg_gramoty_911 import segment_gramoty_911_unified
 from segmenters.seg_gramoty_12 import segment_gramoty_12_unified
 from segmenters.seg_usatges import segment_usatges_unified
+from segmenters.seg_perpignan import segment_perpignan_unified
 
 
 SegmenterFunc = Callable[[str | Path, str], list[tuple[str, str]]]
@@ -55,6 +56,7 @@ _SEGMENTERS: dict[str, SegmenterFunc] = {
     "Acta911": segment_gramoty_911_unified,
     "Acta12": segment_gramoty_12_unified,
     "UsatgesBarcelona": segment_usatges_unified,
+    "CostumsDePerpinya": segment_perpignan_unified,
 }
 
 

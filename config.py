@@ -141,6 +141,12 @@ CORPORA = {
         "display_ru": "Барселонские\nОбычаи ",
         "color": "#17becf",
     },
+    "CostumsDePerpinya": {
+        "path": DATA_DIR / "Customs_of_Perpignan_v2.txt",
+        "kind": "catalan_source",
+        "display_ru": "Обычаи\nПерпиньяна",
+        "color": "#6b1fb1",
+    },
 }
 
 
@@ -162,6 +168,7 @@ GROUPS = {
         "CostumsDeValdAran",
         "PragmaticaJaimeII1295",
         "PragmaticaJaimeII1301",
+        "CostumsDePerpinya"
     ],
     "GRAMOTY": [
         "Acta911",
