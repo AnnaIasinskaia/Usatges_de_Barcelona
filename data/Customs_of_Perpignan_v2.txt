@@ -1,0 +1,577 @@
+﻿
+
+
+
+
+
+
+
+
+
+
+
+b)	Compilaciones de derecho municipal
+
+35. COSTUMBRES DE PERPIÑÁN, 1243-1246. PERPIÑÁN 1
+   Jaime I confirma las costumbres de Perpiñán en una fecha indeterminada; un texto jurídico autóctono de 69 capítulos, que también incluye diez usos sobre déci- mas y primicias que deben satisfacer los habitantes de la ciudad y su territorio. El código es elaborado tras un largo proceso de formación a partir del s. XII, a iniciativa vecinal y sin que conste su posible sanción oficial anterior 2.
+Original, en el Archivo Municipal de Perpiñán, Llibre Verd Major, fols. 1-14. 3
+***
+
+      1 Aunque el texto carece de la cláusula de datación, su preámbulo se refiere a su proceso de for- mación en alusión particular a los antiguos condes del Rosellón y Cerdaña, poniendo de manifiesto que su aparición fue resultado de la iniciativa de la comunidad vecinal. El mismo documento incluye una nota de confirmación sin fecha del reinado de Jaime I; y el profesor Carbasse lo sitúa entre esos años 1243 y 1246 (J. M. cARbAsse, «Quelques remarques sur les Coutumes de Perpignan», en Coutu- mes et Libertés. Actes des Journées internationales de Toulouse, 4-7 juin, 1987. Recueil de Mémoires et Travaux publié par la Société d’Histoire du Droit et des Institutions des anciens Pays de Droit écrit, XIV, Montpellier, 1988, pp. 44-45.
+      2 Las primeras ediciones del texto son de: J. MAssot-ReynieR, Les Coutumes de Perpignan sui- vies des Usages sur la dîme, des plus anciens priviléges de la ville et de documents complémentaires, So- ciété Archeologique de Montpellier, Montpellier, 1848, pp. 5-34 (incluye un extenso estudio intro- ductorio en p. V-LXVII); y Ferran vAlls-tAbeRneR, «Els Costums de Perpinyà», Revista Jurídica de Catalunya, Barcelona, 1926, pp. 15-43 (2.ª ed. por Universidad de Málaga, Barcelona, 1992). La edición de Massot se realiza según la versión del Llibre Verd Major del Archivo Municipal de Perpi- ñán en catalán y latín; y Valls a su vez publica la suya sobre la latina de Massot con algunas incor- poraciones, dando noticia de la existencia de un manuscrito del documento en la Bibliothèque Nationale de France en París.
+      3 El texto se conserva en tres cartularios del Archivo Municipal de Perpiñán: Liber diversorum privilegiorum, ordinacionum, et statutuum oppidi Perpiniani (fols. 1-8); el Llibre Verd Menor (fols. 1-8), y el Llibre Verd Major. Y un cuarto manuscrito en la Bibliothèque National de France en París (Ms. Latín 9995). Para esta transcripción de las Costums de Perpinyà, seguimos la edición de Vicent gARcíA edo, El Llibre Verd Major de Perpinyà, segle XII-1395, Llibres de Privilegis, núm. 15, Fun- dació Noguera, Barcelona, 2010, pp. 144-168; el autor recoge las dos versiones latina y catalana del texto de las costumbres como hiciera Massot en 1848; y en el presente caso se incluyen aspectos de ambas ediciones, con las incorporaciones de la edición de vAlls-tAbeRneR que se han juzgado de utilidad para su mejor lectura y comprensión, como por ejemplo las rúbricas de los capítulos en latín que él introduce.
+
+I
+   Cum ad civitatem, villam, vel rem publicam augendam, amplifficandam et conservandam, nedum legibus et iuribus indigeat, ymo ex privilegiis, libertatibus et immunitatibus, contra iura et aliud dictamen recte racionis, ut ipsius privile- giis et immunitatibus confisi ad ipsam confugiant, inibique domicilium transffe- rentes se collocent; legitur siquidem in Exodo, Deuteronomio et Iosue, quod tres fuerunt civitates refugii ultra Iordanem, et tres citra, quarum talis erat inmuni- tas, quod si quis volens hominem occidisset, si ad alteram ipsarum confugere po- terat, ibi tutus erat a consanguineis occisi, usque ad mortem summi sacerdotis, et post ad propriam securus revertebatur; fertur etiam de Romulo, quod cum mag- num circuitum murorum pro civitate romana construxisset, ut [ipsa] murorum constructio popularetur, domum inibi quandam construxit, que domus asili seu asilius nuncupabatur, ad quam confugientes de omnibus finitimis urbibus et qui- buscunque maleficiis vel debitis tuti erant; indeque brevi tempore dicte domus asili suffragio, ipsa urbs romana domibus et edifficiis impleta, et admodum popu- losa sint, excedens nimium omnes alias urbes vicinas antiquas, que et in tantum crevit quod totum mundum sibi subiecit, et caput celestis et terrestris imperii est effecta.
+   Singit itaque vetustissimis temporibus insignis villa Perpinyani, que in pede Pirenei montis, iuxta Thetim flumen in pago Rossilionensi fundatur, cuius siqui- dem populus laboriosus multum ocia vitans, et lanificiis deditus, cuius mulieres quasi a Minerva vel Gaya Cecilia, Tarquini Prisci regis romani uxor edocte optime laniffices existunt, quorum exordia a mulier romanarum moribus antiquis tracta videntur.
+   Reffert si quidem Valerius Maximus, libro decimo, capitulo «De cognomine noviter nuptarum», quod mulieres noviter nupte, dum ante ianuam manti die sollempnita- tis essent interrogate que nam vocarentur gayas se esse, idest lanifficas a dicta Gaya Cecilia regina dicebant.
+   Huius autem insignis ville exordium seu fundationem primam non meminis- cunt ystorie, cum tamen iam tempore Karoli Magni, et Ludovici eius filii, et Lotharii regum Francie, et augustorum insignis haberetur. Fuit autem olim ipsa sicut et totus Rossilionensis pagus imperatoribus occidentalibus subdita. Deinde per duces sub rege Francie ut videtur obtenta, et demum libere per eggregios et claros comites, usque ad Guirardum comitem, qui cum morti appropinquasset filium aut filiam qui sibi succederet, non habens voto sui populi, et signanter dic- te ville exquisito et sequto illustrissimum ad Alfonsum regem Aragonum, sibi universalem dicti comitatus et aliorum bonorum suorum heredem et successorem instituit.
+   Ex postque per illustrissimos reges Aragonum continue possessa paucis inter- mediis qui in feudum eam sub ipsis regibus habuerunt, et nunc ab illustrissimo principe domino Iohanne rege Aragonum unita suo regno et Cathalonie Principatui inseparabiliter optinetur, et per ipsum et eius descendentes et successores legitimos, dante Deo, optinebitur usque ad mundi universalem finem.
+   Ad hanc claram et insignem villam quodam divino inspiramine reges predicti et principes aciem sue considerationis pro ipsius amplifficatione dirigentes, eidem di- versas bonas consuetudines laudaverunt, privilegia, libertates et immunitates va- rias donaverunt, ex quibus crevit ac crescit claraque super omnes villas tocius dicio-
+
+nis domini regis habetur. Cuius libertates et privilegia, et si non recte intelligentibus vicinis populis et dominis villularum et castrorum videantur gravia et molesta re vera tamen non sunt, ymo pocius eis suffragancia ac etiam opportuna cum et dicte ville amplifficatio tranquillo tempore utilissima sit vicinis, ad dictam villam vic- tualia et suas merces defferentibus ad vendendum; indeque peccunias et alia sibi necessaria asportantibus et vigentibus adversitatibus guerrarum quibusvis necessi- tatibus aut aliis sinistris per ipsam villam quasi per matrem tueantur et deffensen- tur, cum in ipsa villa virtus fortiter unita apcior sit et forcior, ad resistendum et auxiliandum aliis villulis et castris, quasi particulares virtutes per dictas villulas ac castra separate et divise.
+   Honorabiles itaque viri Bernardus Aybrini, Petrus Grimaldi, Bernardus Casti- lionis, Petrus Iauberti, et Guillermus Tisoni, consules universitatis ville predicte, attendentes consuetudines et privilegia ville predicte in unum librum iam redacta in composite, et ut in pluribus prepostere fuisse collata, interque etiam sunt plura temporalia et iam transcursu temporis finita, et alia penitus inutilia et multiplicata deliberarunt et ordinarunt, de voluntate et assensu generalis consilii dicte ville, consuetudines et privilegia, libertates ac immunitates predictas in unum breve vo- lumine ordinatum, et superfluis resecatis pro utilitate ipsius ville et singularius ei- dem redigi facere.
+   Altissimi precantes auxilium, ut ipsi presenti volumini bonum inicium, melius melium, et finem optimum largiatur, et hec clara Perpinyani villa sub eorum et aliorum successorum ipsorum felici ducta regimine preservetur a noxiis, et optatis semper profficiat incrementis, quod intercessione Marie Virginis concedat ipse Ihe- sus, benedictus eius filius, qui cum Patre et Spiritu Sancto vivit et regnat per secula omnia seculorum, amen.
+   Et quia ius consuetudinis, post naturalem legem exordium habuit, ex quo ho- mines convenientes in unum ceperunt simul habitare, quod ex eo tempore factum creditur, ex quo Cahim civitatem edifficasse legitur; ideo consuetudines scripte ville Perpinyani in hoc libro tanquam primeve et antiquiores premitantur.
+   Hec sunt consuetudines Perpinyani, quas ad presens invenimus et ad memo- riam reducimus, quibus homines Perpinyani cum domino Nunone Sancio et cum antecessoribus suis, et cum domino Guirardo et cum antecessoribus suis, et cum Gaufredo patre suo usi sunt per bonam consuetudinem.
+
+
+
+[I] Capitulum de iuicio qualiter de-
+bet fieri.
+   Homines Perpinyani debent placita- re et iudicari per consuetudines ville, et per iura ubi consuetudines defficiunt, et non per usaticos Barchinone, neque per legem goticam, quia non habent locum in villa Perpinyani, neque intestatio, ne- que exorquia, nec aliquod desvet, nisi in sale tantum, quod incipit in ultima die iovis aprilis, usque in primam diem iovis iunii.
+   [I] 
+Los homens de Perpinya no deuen playdeiar ne esser jutiats per los usatges de Barchinona, ne per ley goti- ca, mes per les costumes de la vila, e per dret la on constumes deffallen. E en la dita vila no ha intestia, ne exoorquia, ne alcun desvet, sino de sal, del derrer di- gous de abril fins al primer digous de juny.
+
+[II] De querimonia facta de aliquo.
+   Item, si dominus conqueratur de ali- quo homine Perpenyani, debet eum cer- tifficare super quo et de quo conquera- tur, et sic postea potest petere ab eo firmanciam. Et si reus pecierit, dominus debet illum expectare de firmancia us- que in crastinum diem, nisi esset queri- monia facta de enormi crimine, in quo dilacio esset periculosa. Idem est in baiulo quod in domino dictum est, et omni alio ut prius certifficet de quo con- queritur.
+   [III] De firmancia et de pignore pro firmancia.
+   Item, actor conquerens non debet dare firmanciam nec pignora, pro queri- monia quam fecit de aliquo habitante in Perpinyano vel extraneo.
+   [IV] De actore non tenente dare libe- llum in scriptis.
+   Item, actor non tenetur dare libe- llum in scriptis de querimonia quam fe- cit, set eam baiulus potest redigere in scriptis.
+   [V] De duobus debitoribus insimul obligatis.
+   Item, si duo [sunt] rei promittendi quorum uterque teneatur insolidum pro rata conveniuntur, etiam si specialiter renunciaverit beneficio nove constitu- tionis et dividende actionis, nisi alter sit absens vel inops. Idem est in pluribus fideiussoribus in solidum obligatis, etiam si renunciaverint epistole divi Adriani; set secus est in principali debi- tore et fideiussore, et pignorum posses- sore, nam hic habet electionem creditor contra quem velit primo experiri, etiam si fideiussor non renunciaverit beneficio nove constitutionis.
+   [II] 
+Si lo senyor batle o altre de Perpenya se clama de algun hom de Per- penya, lo deu primerament certifficar sobre que se’n clama, e puis pot-li dema- nar ferma. E si lo reu o demana, lo sen- yor lo deu sperar de la ferma fins a l’endemà, si la clamor no era de crim enorme en que fos peril en la trigua.
+
+
+
+
+
+   [III] Lo demanador qui·s clama d’algun hom de Perpenya o strayn, no es tengut dar fermança o penyora per lo clam.
+
+
+   [IV] Lo demanador no es tengut donar libel en scrits del clam, mes lo ba- lle pot fer metre lo clam en scrits.
+
+
+
+   [V] Dos reus deutors obligats in solit, no son convengutz sino cascu pro rata, posat que haien renunciat ab bene- fici de divisir actio, o de novela constitu- tio, si donchs la un no es absent, o no pagador. E semblant es en fermances obligatz insolit, posat que haien renun- ciat a la epístola de divi Adria. Mes en principal deutor e fermança o posseydor de penyora, lo crehedor ha electio contre qui primer vol demanar, encara que la fermança no haia renunciat a la novela constitutio.
+
+[VI] Capitulum de firmanciis. Item, homines Perpenyani non te-
+nentur firmare directum vel facere ra-
+tione suarum personarum vel rerum ubicumque inveniantur, ubicumque eas habeant, in posse alicuius curie, sed tan- tum in posse domini vel baiuli Perpinia- ni, nisi forte res tenerent pro aliquo. In quo casu, si aliquis conquereretur de do- mino illarum rerum de homine Perpen- yani, tunc domino pro quo eas tenet de- bet firmare et placitare in posse illius domini. Idem est si dominus conquere- retur de illo qui pro illo tenet terras, de terremeritis vel censu vel forascapio non solutis, vel non soluto, ut sibi solveren- tur, non ut expelleretur possessor de re- bus quas pro ipso tenet. Si vero diceret ipsum expellendum, et terras sibi appli- candas, propter non soluta terremerita vel censum vel foriscapium, tunc non tenetur in posse eius firmare nec placita- re, set in posse baiuli Perpinyani, nisi forte ille dominus pro quo tenet terras habeat in eo iurisdiccionem generalem, vel sit homo suus. Et tunc, racione iuris- diccionis generalis quam in eo habet vel hominatici debet firmare et placitare in posse illius pro quo tenet terras, de ex- pellendo vel non expellendo eum de te- rris, vel de applicandis illis domino propter non soluta terremerita vel cen- sum vel foriscapium.
+   [VII] De illis qui tenent aliquam rem de aliquo.
+   Item, si aliquis tenet pro aliquo rem aliquam, et contentio sit de domino illius rei, inter possessorem et alium, de- bet in posse domini pro quo tenetur fir- mare et placitare. Et si forte firmaverit in posse curie, etiam volentes, potest do- minus habitans in Perpinyano, pro quo res tenetur, firmancias extrahere de pos- se curie, et in suo posse partes reducere, si litigare postea voluerint.
+   [VI] 
+Los homens de Perpenya no són tengutz fermar o fer dret per raho de lurs bens o persones, on que’ls haien o sien atrobats, si no en poder del senyor o balle de Perpenya, si donchs los bens no eren tenguts per algun, en lo qual cas si algun se clama de la senyoria de aquells, l’om de Perpenya deu fermar e fer dret en poder del senyor per qui ten aquels bens; e axi meteys si lo senyor per qui’s tenen los beens se clama de terremerits, cens, o forescapi no pagats. Mes si per aço demana comes, l’om de Perpenya no es tengut playdeiar ne fer dret, si no da- vant lo balle de Perpenya, si donchs lo dret senyor no avia en la iuredictio gene- ral, o era hom seu per homenage, car la- donchs auria a playdeiar en poder del dret senyor.
+
+
+
+
+
+
+
+
+
+
+
+
+   [VII] Si algun ten alcuna possessio sots dreta senyoria d’altre, e es questio de la senyoria util d’aquella possessio entre’l possehydor e altre, deu lo posse- hydor fermar he playdeiar en poder del dret senyor. E si volens ab dos les parts, lo possehydor ha fermat per la dita questio en poder de la cort reyal o altre, lo dret senyor de la possessio qui es habi- tant de Perpinya pot trer les fermes de tota altra cort, e retornar les parts en son poder si aprés volen playdeiar.
+
+   [VIII] Capitulum de dilationibus super causis.
+   Item, curia debet dare partibus su- per causis primam dilationem decem dierum, postea alias de septem diebus.
+[IX] De firmanciis acceptis.
+   Item, baiulus nec post firmancias ac- ceptas nec ante, potest [petere] a reo pig- nora, nec vicarius nec dominus, neque expensas aliquas a reo vel actore, pro se vel pro iudice vel pro exsecutoribus, nec pro aliquibus aliis ad causam necessariis, neque pro interloqutoriis, etiam si plu- ries ab illis appellentur, nisi solummodo iusticiam consuetam ab illo qui victus fuerit. Quam iusticiam non potest petere a victo, si miles vel generosa persona, vel clericus vel religiosa persona fuerit con- questus vel conquesta de homine Perpin- yani, vel homo Perpiniani de ipsis. Sed nec firmancias, nec pignora, potest neque sumptus etiam petere ab homine Perpin- yani, si talis persona de eo conqueratur, vel ipse de illa. Sed homines de Malleolis consueverunt dare expensas, sive con- queruntur de aliquo, vel aliquis de ipsis, quia eorum iurisdictio expectat ad cu- riam baiuli propter vicariam.
+[X] De iusticia consueta, qualiter fit.
+   Item, consueta iusticia est tercia pars quantitatis vel extimationis speciei vel iniurie per sentenciam vel composi- tionem obtente, de qua dominus vel baiulus, vel vicarius, consuevit remitte- re et facere maximum amorem. Et ita perpetuo est obtentum nobiscum et cum antecessoribus nostris.
+   [XI] Libellum de instrumentis scri- banie.
+   Item, contra instrumenta scribanie Perpinyani non admittitur probatio, nisi per testes eorum instrumentorum, vel nisi per tabellionem et testes.
+   [VIII] 
+La cort en les questions deu donar la primera dilatio a les parts de deu dies, les altres de set dies.
+
+
+   [IX] Lo balle apres les fermes pre- ses ne abans no pot demanar al reu pen- yores, ne lo veger, ne lo senyor de Perpen- ya ne poden demanar alcunes despeses del actor, ne del reu, ne per si meteys, ne per lo jutge o per los missatges, o pe[r] altres coses necessarias al pleyt, ne per interlocutories, encare que moltes vega- des se appellassen de aquelles, si no tant solament la iusticia acostumada d’aquel qui cayra del pleyt, la qual iusticia no pot demanar si cavaller, clergue, religios o ge- nerosa persona s’i es clamat de l’hom de Perpenya, o l’om de Perpenya s’es clamat d’ell, n’es podem demanar ferma penyo- res ne despeses a l’hom de Perpenya si’s clama de les dites persones, o aquelles d’ells. Mes los homens de Malloles han acostumat de pagar messions, si algun se clama d’ells o ells d’altre.
+
+
+
+   [X] La iusticia acostumada es la terça part de la quantitat o de la exti- macio de la cosa specia, o injuria per sentencia o compositio obtenguda, de la qual iusticia lo senyor o’l balle o veger han acostumat remetre et fer gran amor. E axi tostemps s’es servat.
+
+
+   [XI] Contre les cartes de la scriva- nia de Perpinya no’s pren alcuna prova, si no per los testimonis meteys d’elles, o per lo notari e testimonis.
+
+   [XII] Libellum de hominibus Per- piniani.
+   Item, si aliquis de Perpinyano vel ex- traneus fuerit captus in curia, post de- cem dies debet iudicari, et deinceps non debet in carcerem detineri. Et infra X dies potest iudicari si liqueat de crimine vel de causa propter quam captus est.
+   [XIII] De homine capto pro causa peccuniaria.
+   Item, si aliquis fuerit captus pro causa peccuniaria, non debet in compe- dibus ligneis vel ferreis poni.
+   [XIV] De querimonia facta	pro causa peccuniaria.
+   Item, si de aliquo fiat querimonia in causa peccuniaria qui dicat se non posse dare fideiussorem neque pignora mobi- lia, debet iurare in posse baiuli, presente actore, quod non potest dare fideiusso- rum neque mittere pignora mobilia us- que ad V solidos, excepto lecto et vesti- mentis et armis. Et si pervenerit ad meliorem fortunam, solvet totum vel quod poterit. Et si habet bona immobi- lia debet obligare ea. Et si is contra quem agitur contenderit, id de quo est facta querimonia contra eum, et est paratus in continenti facere directum debet audiri, nec ad curiam debet duci. Si autem petat dilationem, potest curia ipsum retinere per X dies, nisi habeat bona immobilia valencia tantum quantum de ipso facta est querimonia; quibus transactis debet in publicum duci et causa tractari. Si au- tem ab inicio confessus fuerit se debere quod petitur, non debet eum curia reti- nere, sed statim debet audiri si potest solvere an non; vel si non poterit solvere vel pignora dare mobilia, iuret se hoc non posse facere usque ad V solidos; et si de mense in mensem iuret si voluerit ille qui conquestus fuerit; et ab inde non de- bet teneri captus pro illa querimonia ab illo baiulo vel alio. Idem est si convictus
+   [XII] 
+L’om de Perpinya o strayn pres en la cort, apres deu jorns deu esser jutjat e puis deliurat de la carcer, e dins deu jorns pot esser jutjat si pot esser clar de la causa o crim per que fo pres.
+
+
+
+   [XIII] Si alcun es pres per feyt peccuniari qui’l no deu esser detengut en grillons o seps de ferre, o de fust.
+
+
+   [XIV] Si aquel contre qui es donat clam en causa peccuniaria, afferma que no pot donar fermances ne penyores mo- bles, deu asso iurar present lo demana- dor, ço es que no pot donar fermança ne penyores mobles fins a valor de sinch sous. Exceptat lit, vestidures et armes; e que si ve a mellor fortuna pagara tot so que pora. E si ha bens immobles deu obligar aquels. E si aquel contre qui es demanat és apparellat de continent fer dret de ço que es demanat contre ell, ne- gant esser tengut en res, deu esser oyt e no deu esser manat a la cort. Si empero demana dilatio, la cort lo pot retenir per deu dies, si no posseseys bens mobles va- lens lo clam, e passats los deu dies deu esser tret en publich, e la questio esser tractada. E si al començament confessa que deu lo deute, la cort no’l deu retenir, mes de continent deu esser oyt si pot o no’n pot pagar, o dar penyores mobles, o iurar que no u pot fer fins a V sous. E semblant iurament ha a ffer de mes en mes, si lo clamater ho vol, e d’aqui avant no deu esser tengut per aquel clam per lo balle o altre. E semblant es si lo reu es convensut del deute sens confessio sua. Si empero lo actor vol provar que’l reu pot pagar, deu esser admes. E en tots los cases damont dits, si lo reu ha bens in-
+
+fuerit etiam sine confessione. Si vero ac- tor voluerit probare ipsum posse solvere, debet admitti et in omnibus predictis si habet immobilia debent illa vendi pro predicta querimonia ad satisfaciendum conquerenti.
+[XV] Capitulum de victoribus.
+   Item, victus victori in expensis non condempnatur in principali causa, etiam pro interlocutoriis a quibus plu- ries fuerit appellatum. Si forte culpa ali- cuius partis vel contumacia non fuerit processum in causa, tunc expense facte ab altera parte propter contumaciam alterius, solvantur parti comparenti ex- pense illius diei in quo eius adversarius deffecit, non habita iusta causa.
+[XVI] Capitulum qualiter curia se
+debet habere super firmanciis.
+   Item, curia neminem debet capere, vel firmanciam vel pignora ab eo petere, nisi sit qui de eo conqueratur, vel nisi crimen sit notorium quod sui evidencia celari non possit.
+   [XVII] De conquerentibus de ali- quibus iniuriis.
+   Item, si aliquis conqueratur de ali- qua iniuria vel crimine, dominus facta illa querimonia non potest conqueri de illo super eodem, donec causa termine- tur inter illos.
+[XVIII] De captis in adulterio. Item, adulterium non punitur secun-
+dum leges, nec potest accusari aliquis de Perpinyano, nec in aliquo puniri adulte- rium iam commissum. Set si in ipso adulterio a curia deprehendantur, potest curia illos facere currere per villam, ita quod de suo nichil amittant. Verum si voluerint componere cum curia super cursu, et curia voluerit, habeat curia illam compositionem, et postea non cu- rrant, nec penam aliquam paciantur.
+
+mobles, deuen esser venuts per sattiffer al clamant en son deute.
+
+
+
+   [XV] Lo vensut no es condempnat en despeses al vensedor en la causa prin- cipal, encara per interlocutories de quals moltes veus se fos appellat. Mes si per culpa, o contumacia de la una part no s’ees prosehit en la causa la donchs la part contumax paga, a la part compa- rent les despeses de aquel dia en què no es comparegut sens iusta causa.
+
+
+   [XVI] La cort no deu pendre al- gun, o fermances o penyores demanar, si donchs no.y ha clamador, o si no era lo crim notori.
+
+
+
+   [XVII] Si alcun se clama d’altre d’alguna injuria o crim, lo senyor de Perpinya no’s pot clamar d’aquella inju- ria o crim del reu entro que la questio sia entre ells termenada.
+
+
+   [XVIII] Adulteri en Perpinya no es punit, segons les leys, ne alguun de Perpinya no pot esser accusat ne punit de adulteri ia comes. Mes si la cort pren alcuns en adulteri pot-los fer correr la vila, e que no perden res del lur. E si vo- len composar ab la cort, la cort si·s vol pot fer ab els compositio que no corre- guen la vila, ne sofferan altra pena.
+
+[XIX] De criminalibus iniuriis. Item, si aliquis alicui criminalem iniu-
+riam dixerit, potest antequam testes iu-
+rent contra eum iurare, quod per iram et non per veritatem illud dixit, et sic a nulla parte debet habere iusticiam dominus.
+   [XX] De vilibus personis vel baca- llatoribus.
+   Item, si vilis persona vel bacallator iniuriam fecerit vel dixerit alicui probo homini de Perpinyano, alius circumstans potest eum corripere in ipsa ricxa sine deterioratione illius persone; et quod do- minus nichil potest petere ab eo qui eum corripuit.
+[XXI] De debitis ex causa mutui.
+   Item, si aliquis petat debitum ex causa mutui, si interrogetur a reo an illud petat cum carta vel sine carta, de- bet respondere etiam ante litem contes- tatam super illo. Et si responderit cum carta, debet illam exhibere usque ad ka- lendarium, si potest.
+[XXII] De illis qui volunt firmare
+directum.
+   Item, curia non potest capere ali- quem etiam extraneum, nec retinere dum velit firmare directum nisi sit enor- me crimen.
+   [XXIII] De	creditoribus	coactis vendere pignus.
+   Item, debitor [sic] 4 cogitur vendere pignus mobile, denunciatione sibi facta a debitore ut venderet. Alioquin si pos- tea vel non vendiderit cum possit, non repetet sumptus quos postea fecerit in
+   [XIX] 
+Si alcun aura dita iniuria criminal a alcun, ans que’ls testimonis iuren contre ell, pot iurat que par ira e no per veritat ho ha dit, e axi lo senyor [no] aura la iusticia de la un ne de l’altre.
+
+   [XX] Si alcuna vil persona o baca- llar fara o dira injuria a alcun prohom de Perpinya, un altre stant aqui lo’n pot corregir en la ricxa o brega sens deterio- ration empero de la persona del dit iniu- riant, ne lo senyor pot res demanar a aquell qui lo’n ha corregit.
+
+
+   [XXI] Qui demana deute a l’altre per raho de prestech, deu esser interro- gat si’l deute es degut ab carta o sens carta; e sobre aço deu respondre ans del pleyt contestat. E si respon que ab car- ta, deu aquella exhibir si pot fins al ca- nelar.
+
+
+   [XXII] La cort no pot pendre al- cun strayn, o de la vila, pus vulla fermar dret, si donchs no és enorme crim.
+
+
+
+   [XXIII] Lo cresedor es forsat ven- dre la penyora mobla, si lo deutor li de- nuncia que la vena. E si no ho fa no pot demanar apres alcunes despeses que haia fetes en la penyora ne alcun guany.
+
+
+
+
+      4 Tal y como señala García Edo en su estu- dio, debido a un error del copista, en lugar de debitor, tendría que constar creditor. Esta errata consta corregida en la edición de Valls-Taberner, concretamente, en la p. 24.
+
+re sibi pignorata, nec aliquod lucrum postea habebit.
+[XXIV] [De eodem].
+   Item, si quis timore ne creditor ab eo conqueratur, curie pignus mobile suo creditori tradiderit pro debito de quo conqueri minabatur transactis X diebus, et postea subastatione publice facta de vendendo pignore illo, per tres dies, po- test creditor postea illud vendere, non tamen cogitur, nisi debitor ei denuncia- verit ut venderet, quo «casu cogitur» si potest vendere; alioquin nec repetet sumptus nec lucrum aliquod habebit, ut supra dictum est. Si vero creditor oblato pignore sibi a debitore suo pro debito de quo conqueri volebat illud recipere no- luerit, vel etiam receperit, et postea cu- rie conquestus fuerit de eodem debito, reus debitor non solvet iusticiam pro illa querimonia. Si vero creditor conqueritur de eo quod dictum pignus minus valet, dabit reus debitor de illo minus valimen- to iusticiam si subcumbat.
+[XXV] De rebus furtivis vel raptis.
+   Item, si quis rem furtivam vel rap- tam, in nundinis vel in foro vel publice in platea bona fide emerit, vel alias do- minium eius rei vel possessionem adqui- sierit, non cogitur eam vero domino vel ius in ea habenti restituere, nisi prius solverit sibi vel restituerit quod pro ea re solverit vel tradiderit.
+   [XXVI] De creditoribus recipienti- bus pignus speciale.
+   Item, si creditor receperit speciale pignus pro debito suo, non potest perso- nali actione petere debitum a suo debito- re; sed si mobile pignus receperit, tran- sacto tempore solutionis potest denunciare debitori ut redimat, et si non redemerit ipse denunciatione sibi facta ut dictum est, potest creditor post X dies et subastatione publice facta per III
+
+
+
+   [XXIV] Si lo deutor per temor que’l cresedor no’s clamas d’ell a la cort ha liurada penyora mobla al cresedor passats deu jorns, e apres feta subasta- tio o enquant publicament per III iorns, pot lo cresedor vendre la penyora, mes no es tengut si donchs lo deutor no’l ne avia request que la venes, car la-donchs es forçat de vendre-la si pot; en altra manera no aura alcunes messions ne al- cun guany.
+
+
+
+
+
+
+
+
+
+   [XXV] Si alcuna cosa furtada o robada, en fira o mercat o publicament en plassa haura comprada en bona fe, o en altre manera le senyoria o possessio de aquella haura aconseguida, no es ten- gut restituir aquella al vertader senyor o a altre havant-hi dret, si primerament no li es restituit so que ha pagat o liurat per aquella cosa.
+
+   [XXVI] Si lo cresedor ha presa special penyora per son deute, no pot demanar lo deute del deutor per actio personal. Mes si n’ha pres penyora mo- ble passat lo temps de la pagua, pot de- nunciar al deutor que la resema, e si no la resem, lo cresedor apres deu dies de la denunciatio, enquantada la penyora per tres dies publicament la pot vendre al mes donant, si lo contrari no era encovi- nent. E si la penyora es inmobla en ven-
+
+dies de pignore vendendo, illud vendere plus offerenti, nisi aliud pactum inducat. Sed si pignus sit immobile, fiat in ven- dendo quod in iure legali cavetur, nisi a iudice tempus decurretur.
+   [XXVII] De hominibus Perpiniani potentibus mutare stationes suas.
+   Item, quilibet de Perpinyano potest mutare stationem suam et domicilium ubicumque voluerit, infra provintiam vel extra, sine impedimento domini et alterius persone. Et ubicumque ipse vel sui fuerint, possunt retinere possessio- nes suas in villa Perpinyani et in eius terminis, et in aliis locis ubique, et om- nes redditus earumdem habere ad suas voluntates, salvo et soluto tantummodo censu et terremeritis que debentur do- mino pro quo tenentur. Et si voluerint, possunt eas omnes vel partem alienare ubicumque steterint, salvo foriscapio solummodo in venditione de possessio- nibus que infra muros Perpinyani possi- dentur dominis pro quibus tenentur. Itaque si dominus ville vel alius reci- piantur censum ambo in aliqua posses- sione infra muros ville, dominus ville debet habere foriscapium solummodo in venditione illius possessionis; set alius homo nichil. Si vero alias alienetur pos- sessio infra muros ville, nullum forisca- pium inde datur. Sed si extra muros ali- qua possessio vendatur vel alio modo alienetur, nullum forescapium inde da- tur. Nec in ulla venditione vel alienatio- ne requiritur laudimium domini pro quo possessio vendita vel alienata tenetur. Hec ita sunt, nisi pactum speciale aliud inducat.
+   [XXVIII] De facientibus testamen- tum in decessu in Perpiniano.
+   Item, quilibet potest dimittere bona sua verbo vel scripto cuicumque volue- rit, etiam extraneus, si in villa Perpin- yani disposuerit suam voluntatem. Sed
+
+dre la fassas co que’n volen les leys, si lo temps per lo jutge no era acursat.
+
+
+
+   [XXVII] Cascun hom de Perpinya pot mudar son statge on se vol, sens en- patxament del senyor o d’altra persona, et on que ell e los seus sien poden retenir les possessions que han en la vila o ter- mens de Perpinya o altres lochs, e totes les rendes de aqueles haver a lurs volun- tats pagats censes et terremerits que fes- sen al dret senyor. E si volen aquelles possessions o part de aquelles alienar, on que sien, poden-ho fer, salvat lo foresca- pi al senyor per qui’s tenen tansolament de les vendes de les possessions que son dins los murs de Perpinya. E si lo senyor de Perpinya e altre hom prenen cens en possessio que sia dins los murs, lo senyor de la vila deu haver forescapi tansola- ment de la vende de aquella possessio, mes l’altre hom no’n res. E si en altra manera se aliena la possessio que es dins los murs de la vila, alcun forescapi no se’n paga. Mes si la possessio que es fo- ras los murs se ven, o en altra manera se aliena, degun forescapi no se’n paga, ne en alcuna vende o alienatio es request lausisme del senyor per lo qual la posses- sio venuda o alienada se ten, si donchs pacte special no induhya lo contrari.
+
+
+
+
+
+   [XXVIII] Cascun pot leixar sos bens de paraula o d’escript a qui’s vol, encara strayns, si en la vil·la de Perpin- ya ha ordonada sa voluntat. Mas si mor intestatz, sos prohismes fins en infinit succehexen en sos bens. E si no apparen alcuns proismes, los prohomens de Per-
+
+si intestatus decesserit, habent proximi eius in infinitum omnia bona sua. Quod si forte proximi non appareant, probi homines Perpinyani cum baiulo debent accipere bona illius defuncti, et in [s] edem sacram deponere. Et si infra an- num et diem venerit aliquis proximus deffuncti, debent illi restitui bona de- ffuncti; quo termino transacto, si non venerit proximus, debent dividi illa bona in tres partes, quarum una detur amore Dei, alias duas debet habere do- minus ville, here alieno deducto.
+   [XXIX] De tenentibus mensuras, tam bladi quam vini.
+   Item, quilibet Perpinyani potest ha- bere et tenere mensuram suam rectam et pensum, tam bladi quam vini quam olei, et alterius rei, et cum illa vendere et emere in domo sua et ubique, preter- quam in foro ubi bladum et oleum con- suevit vendi, excepto quod non potest habere quintale, quod est domini ville; et potest comodare mensuras suas vici- nis suis. Et de dicto quintali potest ha- bere dominus tres denarius tantum, et nil ultra ab hominibus extraneis. De ho- minibus ville nichil.
+   [XXX] De potentibus extrahere omne bonum, tam per mare quam per te- rram.
+   Item, quilibet potest extrahere bla- dum suum tam per mare quam per te- rram, nullo dato curie, et vendere cuili- bet etiam estraneo. Ita quod ille extraneus potest illud vendere et extra- here nullo dato curie, nisi leudis antiquis que dantur in mari.
+   [XXXI] De vendentibus bladum in die Iovis.
+   Item, si aliquis de Perpinyano ven- diderit in die iovis bladum suum cum mensura milicie Templi, debet dare mensuraticum sicut alii homines. Si
+
+pinya ab lo balle deuen pendre los bens del mort et metre’ls en casa sacra. E si dins I ayn et I dia venen alcuns parents del mort, deuen-los liurar los bens. E si passat l’ayn e’l dia no és vengut alcun parent, los bens se deuen divisir en tres parts, la una se deu donar per amor de Deu, les dos parts deu haver lo senyor de la vila, deduits los deutes.
+
+
+
+   [XXIX] Cascun de Perpinya pot tenir sa mesura dreta e pes, axi de blat com de vi e oli, o d’altra cosa, et ab aquelles vendre e comprar en sa casa, o on se vol, si no en lo mercat on blat e oli se costuma de vendre. Exceptat que no pot haver quintal, lo qual es del senyor de la vila. E pot prestar les mesures a sos vesins. E del quintal pot haver lo senyor dels hòmens strayns tres diners tan sola- ment, dels homens de Perpinya no res.
+
+
+
+
+   [XXX] Cascun pot trer son blat, axi per terra com per mar, no pagant-ne res a la cort, e vendre encara a strany. E·l estrany pot aquel blat vendre e trer, no pagant-ne res a la cort, si no les leu- des antigues qui’s pagen en mar.
+
+
+
+
+   [XXXI] Si alcun de Perpinya ven en digous son blat a la mesura del Tem- ple, deu donar mesuratge axi com los altres homens. Si altra dia lo ven ab la dita mesura, no deu pagar sino mig me- suratge; e es-li donat per aymina de me-
+
+vero alio die vendiderit bladum cum dic- ta mensura, non debet dare nisi medium mensuraticum. Et datur ei pro eymina de mensuratico una cossa, quarum fa- ciunt VI medium cartonum, cum quo milicia Templi mesurat bladum.
+   [XXXII] De illo qui vendiderit oleum cum mensura milicie.
+   Item, si quis vendiderit oleum cum mensura milicie Templi in die iovis, de- bet dare pro turnis unam cossam, qua- rum duodecim faciunt medium carto- num, cum quo oleum mensuratur.
+   [XXXIII] De vino qualiter debet vendi.
+   Item, quilibet potest vendere vinum suum, totum vel partem, mensurando quocumque modo voluerit, ad rectam mensuram, quocumque precio potuerit, etiam sine precone. Et potest imponere precium in mensura quod voluerit, cum precone et sine precone, quod precium dum vinum venditur non potest ampliare sive augere, sed diminuere illud potest si vult, et viliori precio vendere etiam sine precone. Vel, si maluerit, potest stare ne vendat et sibi retinere, vel lapso aliquo tempore potest illud vendere etiam sine precone, precio quo potuerit, etiam cario- ri quam a principio imposuerit. Et si cum falsa mensura illud vendiderit et fuerit probatum dum vinum venditur, debet puniri in vino quod habet supra spinam vaxelli vini, quod vendebat et non in alio. Illo enim vendito, non potest accusari vel conveniri de falsitate mensure.
+   [XXXIV] De adquirentibus titu- lum.
+   Item, quilibet potest adquirere quo- libet titulo a feudatariis dominorum, de rebus quas pro ipsis tenent in feudum, non requisita voluntate maioris domini; dum tamen feudatarius aliquid in re alienata retinuerit.
+
+suratge una cossa, de que VI fan mig carto, ab lo qual los templés mesuren lo blat.
+
+
+
+   [XXXII] Qui ven oli ab la mesura del Temple en digous, deu donar per tor- nes una cossa, de que XII fan lo mig carto ab que l’oli se mesura.
+
+
+
+   [XXXIII] Cascun pot vendre son vi, tot o part, en quina manera se vol, a dreta mesura, en aquel preu que pora, e sens crida; e pot-lo metre a for gran si’l volra, ab crida o se[n]s crida. E mentre’l vi se ven no pot creixer lo preu, mes be·l pot aminvar encara sens crida, o’s pot star que no’l vena, o retenir-los. O pas- sat alcun temps pot aquel vendre sens crida, encara a pus car preu que al co- mensament no li havia posat. E si ab falsa mesura ven, e li es provat mentre ven lo vin, deu esser punit en lo vin que ha sobre la exeta o spina del vaxell del vin que ven, et no en altre. Lo vin empe- ro venut, no pot esser accusat o coven- gut de falsa mesura.
+
+
+
+
+
+   [XXXIV] Cascun pot aconseguir per qualsevol titol dels feudataris dels senyors de les coses que tenen en feu per ells, non requesta la voluntat del senyor maior, pus que’l feudatari alcun dret se retengua en la cosa alienada.
+
+   [XXXV] De hominibus Perpiniani aportantibus vinum.
+   Item, nullus de Perpinyano qui aportet vinum ibi vel faciat aportari, non dat tabernaculum, nisi fuerit taber- narius qui vendat illud; quo casu debet dare domino XII denarios tantum, pro singulis modiis vini.
+   [XXXVI] De non potentibus solve- re debitum.
+   Item, nullus debet pignorari in ves- timentis vel in lecto vel armis aliqua de causa, etiam pro debito quod non possit solvere.
+   [XXXVII] De hominibus Perpi- niani, quas consuetudines habent ad co- quendum.
+   Item, homines Perpinyani possunt habere lenas suas ad coquendos panes ad opus suum, non tamen venales. Item, possunt habere fornellos suos ad co- quendum. Item, possunt habere duas foguasserias de lena, et duas de lari, ad vendendos panes cum voluerint.
+   [XXXVIII] De fornariis, qualiter debent coquere.
+   Item, fornarii debent coquere bene et sodonare panes in furno, et propter hoc debent habere tantum vicesimum panem; et si male decoquerint vel sado- naverint debent illos emendare. Item, debent coquere panatas, et carnes, et cassoles, et pisces, et formagadas, et flaones, et huiusmodi talia, sine precio et sine aliqua parte. Item, debent co- quere panes flaqueriis pro quatuor de- nariis, et uno tortello de fluxol eymi- nam, et nichil aliud debent habere pro eymina.
+[XXXIX] De extraneis guidatis. Item, quilibet potest guidare homi-
+nes extraneos et bona eorum in villa
+   [XXXV] 
+Negun hom de Perpinya qui aport vin aqui, o fassa portar, no dona tavernatge si donchs no es taverner qui’l vena, qui·n deu donar al senyor XII diners per sengles muyts de vin.
+
+
+
+   [XXXVI] Negun encara per deute que no pugua pagar deu esser penyorat en vestaduras, lit, o armes.
+
+
+
+   [XXXVII] Les homens de Per- penya poden aver lenes per coure lurs pans, no empero venals, e poden haver fornels a coure, e poden haver dos fogas- seres de lena, e dos a vendre pans quant se volran.
+
+
+
+
+   [XXXVIII] Les forners deuen coure be et asahonar los pans al forn, e per so deuen haver lo XXe pan tant so- lament; e si mal l’an cuyt o assahonat, deuen-lo esmenar. E deuen coure pana- des, carns, cassoles, peys, formagades, e flaons, e semblans coses, sens alcun preu o pagua. E deuen coure los pans als fla- quers per quatre diners, e un tortel de fluxol per aymina; e no dever pus haver.
+
+
+
+
+
+   [XXXIX] Cascun pot guisar ho- mens strayns e bens lurs dins la vila de Perpenya, e anant e tornant, si donchs lo guisat no avia feta corporal injuria a
+
+Perpinyani, et in eundo et redeundo, nisi guidatus fecisset corporalem iniu- riam alicui de Perpinyano, vel nisi is qui nollet eum guidari diceret quod talis non guidaretur, postea enim non potest guidari ab aliquo qui sciverit hoc illum dixisse.
+[XL] De tenentibus hostaticos. Item, quilibet tenens hostaticos in
+Perpinyano pro aliquo etiam extraneo est guidatus, dum ibi erit in hostaticis et bona que ibi habet.
+   [XLI] De hominibus Perpiniani quando milites guerregant.
+   Item, homines Perpinyani, quando milites guerregant, possunt se mittere alii in castro alterius militis, et alii in al- terius castro. Et interim ille miles con- tra quem se mittunt in castro alterius militis, non potest facere aliquod ma- lum aliquibus bonis suis, nec aliquod dampnum dare, sed solummodo perso- nis illorum dum fuerint in deffentione castri, et non alio tempore. Si vero vo- luerint esse valitores et adiutores, alii alterius militis et alii alterius habentium guerras, possunt hoc facere et equitare contra adversarium illius quem adiu- vant. Quo casu etiam si revertantur ad Perpinyanum tales valitores, adiutores, existente guerra, ille miles contra quem sunt non potest facere aliquod malum vel dampnum dare bonis suis, sed tan- tum personis suis, et illorum qui cum eis erunt, et bonis que secum ducunt et portant, nisi forte illi dixerint militi contra quem sunt, quod de cetero non erunt contra eum. Postea ille miles cui hoc dixerint, nullum malum vel damp- num potest facere vel dare personis suis, vel illis qui cum illis in illa guerra fuerint, vel bonis que secum duxerint vel porta- verint in illa guerra. Et quodcumque malum vel dampnum fecerint vel de- derint in dicta guerra, est per consuetu-
+
+hom de Perpenya, o alcun qui no vol- gues que fos guisat hagues abans dit que tal no fos guisat, car aprop no pot esser guisat per alcun qui sabes que axi fos stat dit.
+
+
+   [XL] Aquell qui ten hostatges en Perpenya per alcun encara strayn es guisat, mentre ten los hostatges ell e los bens que ha en Perpenya.
+
+
+   [XLI] Los homens de Perpinya, quant los cavallers guarregen, se poden metre los uns en castell de la un, los al- tres de l’altre, e entretant aquel cavaller contre qui’s meten en lo castel de l’altre no pot fer alcun mal ne donar dampnage a alcuns bens lurs; mes tan solament a les persones d’aquels mentre seran en deffenço d’aquell castell. Si empero vol- ran esser valedors o ajudadors los uns de la un, los altres de l’altre havents gue- rres, poden asso fer e cavalear contre l’adversari d’aquell a qui ajuden. E si tornen a Perpinya aytals valedors o aju- dadors stant la guerra, lo cavaller contre qui son no’ls pot fer alcun mal o donar dampnage als bens lurs, mes tansola- ment a les persones lurs, e d’aquells qui ab ells seran, e als bens que ab si meteys porten. Si donchs no dien al cavaller con- tre qui son, que d’aqui avant no seran contra ell. Car apres aquell cavaller a qui assò hauran dit, negun mal ne dampnat- ge pot fer o donar a les persones lurs, o en aquells qui ab ells en aquella guerra se- ran stats, o als bens que ab si meteys hauran portats en aquella guerra. E tot mal o dampnatge que haien fet o donat en la dita guerra, per costume los es re- mes, ne aquel qui ha pres mal o dan, ne lo senyor de la guerra, ne lo senyor de la terra, ne veguer, ne balle, los pot dema- nar res a ells, ne a lurs succehidors.
+
+dinem diffinitum eis. Ita quod ille qui malum vel dampnum prendiderit vel sustinuerit, vel sui vel domini eorum vel dominus guerre contra quem fuerint, ni- chil possunt petere vel vindicare ab eis, vel a successoribus suis, nec etiam domi- nus terre, nec vicarius, nec baiulus eius.
+   [XLII] De potentibus proicere por- ticum supra vias.
+   Item, quilibet potest prohicere am- bannum suum sive porticum supra vias, usque tantum ad terciam partem via- rum.
+   [XLIII] De potentibus nova hostia aperire.
+   Item, quilibet potest aperire hostia de novo in viis vel in carreriis, sine con- tradictione domini.
+   [XLIV] De facientibus parietem in communi solo.
+   Item, si quis fecerit parietem in co- muni solo suis sumptibus, quandocum- que vicinus habens partem in comuni solo solverit ei medietatem sumptuum, debet habere similiter partem in parie- te, et ibi onerare sicut dominus pro di- midio. Si vero in proprio solo parietem construxerit inter se et vicinum quasi in confinio, potest vicinus equali precio dato pro parte dicti soli ibi partem ha- bere et honerare sicut dominus pro di- midio, soluta parte sumptuum ut supra- dictum est.
+   [XLV] De venientibus habitare in villa Perpiniani.
+   Item, quicumque venerit habitare in villa Perpinyani, ipse et bona sua de- bent ubique deffendi, sicut alii homines Perpinyani, et debent uti consuetudini- bus Perpinyani. Verum si fuerit homo ille caput mansate vel borde, homo ille cuius est mansata vel borda debet et bona sua ab omnibus deffendi. Preter-
+
+
+
+
+
+
+
+   [XLII] Cascun pot gittar son enva o porxe sobre la carrera, fins a la terça part de la carrera.
+
+
+
+   [XLIII] Cascun pot obrir de nou portes en les carreres, sens contradictio del senyor.
+
+
+   [XLIV] Si alcun haura fete paret en lo sol comu a ses despeses, quantque- quant lo vesi qui ha sa part en lo sol comu li pagara la meytat de les despeses de la paret, haura la meytat en la paret et carregara sobre aquella axi com sen- yor per la meytat. Si empero en son sol propi haura construida paret entre si meteis e son vesi, quays en lo confini, lo vehi donat a ell egual preu per la part del dit sol, pot haver aqui part e carre- gar axi com a senyor per la meytat, pa- guada la meytat de ço que costa la pa- ret, axi com dessus.
+
+
+   [XLV] Tot hom qui vengua habi- tar dins la vil·la de Perpenya e los bens seus deuen esser en tot loch deffeses, axi com los altres homens de Perpenya, e deuen usar de les costumes de Perpenya. Empero si sera l’om cap de masada o de borda, ell e sos bens deuen esser deffeses contre tot hom, si no contre lo senyor de qui era. Contre’l senyor, empero, la per- sona del dit amasat o abordat deu esser
+
+quam a domino cuius erat, in quo casu persona eius debet deffendi contra do- minum quondam suum intus villam Perpinyani, et bona eius mobilia et im- mobilia ubicumque ea habet, que non sunt de mansata vel borda. Si vero ille qui venerit habitare sit baudator vel traditor, non debet admitti vel deffendi nisi ille voluerit se expiare vel deffende- re, cum reptatus fuerit noticia curie do- mini.
+[XLVI] De fleccariis et panetariis. Item, baiulus Perpinyani debet edi-
+cere flacariis et panetariis, quod secun- dum quantitatem valoris frumenti et bladi faciant bonos panes et legittimos, ad rectum pondus quod curia eis dede- rit. Et si postea curia invenerit panes minus legittimos, illa flacaria que talia comisit amittat panes quos invenerit baiulus in disco ubi dictum panem ven- debat, et nullam aliam penam pacian- tur flacaria et panetaria. Ante vero quam pondus curia dederit eis, non po- test illas punire in aliquo, propter minus legittimum panem, et non legitimi pon- deris, nec debet illum ponderare.
+   [XLVII] De ponentibus carnes feti- das in loco publico.
+   Item, aliquis non debet carnes vel pisces fetidos ponere seu mittere in ali- quo loco publico intus villam Perpinya- ni. Quod si fecerit potest dici baiulo per probos homines de villa. Et si baiulus non removerit, probi homines vel alii sua auctoritate possunt removere et prohicere sine pena.
+   [XLVIII] De ponentibus carnes morticinas in loco publico.
+   Item, carnes morticinas nemo debet ponere nec vendere, nisi in tabulis que adherent loco ubi venditur oleum, quod si alibi quis posuerit potest dici baiulo, per probos homines ville. Et si baiulus
+
+deffesa dins la vila de Perpinya, e los bens seus qui no son de la masada o bor- da deuen esser deffeses on que’ls aia. E si l’om qui ve habitar en Perpinya es bara o traydor, no deu esser resebut ne deffes, si donchs no’s vol deffendre com reptat sera, a coneguda de la cort del senyor de Perpinya.
+
+
+
+   [XLVI] Lo balle de Perpinya deu ordonar als flaquers o paneters que se- gons la valor del froment o blat fassen bons pans al dret pes que la cort los dara. E si apres la cort trobaven pans que no fossen bons ne leguts, la flaquera perda lo pan que li trobara lo batle en lo desch, e altre pena no aia la flaquera. Mes ans que la cort los haia donat lo pes no pot aquelles punir per pa qui no fos legut, ne de legut pes, ne deu aquel pesar.
+
+
+
+
+
+   [XLVII] Alcun no deu carn o peys pudent metre o pesar dins la vila de Per- pinya, e si ho fa per los prohomens de Perpinya pot esser dit al balle. E si lo balle no·ls ne leva, los prohomens de Perpinya per lur auctoritat ne poden li- var lo dit peys o carn pudent he gittar.
+
+
+
+   [XLVIII] Carns mortes per si me- texes negun deu posar ne vendre, si no en les taules que son prop la on se ven l’oli. E si alcun les posa en altre loch, pot esser dit al balle per los prohomens de la vila. E si lo balle no les ne remou, los prohòmens aquels o altres les poden vedar sens pena.
+
+non removerit, possunt probi homines illi vel alii impune eas prohibere sine omnia pena.
+[XLIX]	De conducentibus domos.
+   Item, si quis domum conduxerit ab aliquo, potest dominus sua auctoritate claves inde recipere, et domum claudere, si dictus conductor in mora fuerit pen- sionis solvende. Et si postmodum dictus conductor sine voluntate locatoris dic- tam domum apperuerit, potest locator sua auctoritate de bonis que in dicta domo invenerit pignus recipere pro pen- sione sua.
+[L]	De vendentibus vinum vel nectar.
+   Item, si quis vult vinum vel nectar preconari, vel aliquid aliud tenetur dare unum denarium ipsi preconi, et nil ultra pro prandio vel alio modo; et preco tene- tur preconari per totam villam in capite viarum et in omni binio.
+[LI]	De vinum vendentibus.
+   Item, si quis facit vinum suum pre- conari, debet dominus habere medium cartonum vini, quocienscunque quis preconari faciat vinum.
+[LII]	De mutacione baiuli vel vicarii.
+   Item, quicumque baiulus vel vica- rius vel scriptor «mutatur», debet iurare coram populo se facturum bene et fideli- ter suum officium, et cum iusticia se- cundum quod ei iustum visum fuerit, et secundum consuetudines et leges.
+   [LIII] De tenentibus possessiones por aliquibus.
+   Item, si quis tenet possessionem pro aliquo infra muros ville et vendatur, si- cut dictum est, debet is pro quo tenetur habere foriscapium solummodo in ven- ditione. Et si amonitus non solverit fo- riscapium domino, vel noluerit facere
+
+
+
+
+   [XLIX] Si lo loguater es en triga de pagar lo loguer, lo senyor qui li ha lo- guada la casa per sa auctoritat pot pen- dre les claus, e tanchar-li la casa. E si apres lo loguater sens voluntat del sen- yor obra la casa, lo senyor per sa aucto- ritat pot pendre penyora per lo loguer, dels bens que atrobara dins la casa.
+
+
+
+   [L] Qui vol fer cridar vin o piment, deu donar a la crida I diner, e no pus, e la crida es tengut de cridar per tota la vila al cap de les carreras e en los croers de carrers.
+
+
+   [LI] Quant alcun fa cridar son vin, lo senyor de la vila deu haver mig carto del vin, aytantas vegadas com lo fassa cridar.
+
+
+   [LII] Lo balle, veger o scriva no- vel, deu iurar que fara be et feelment son offici he ab iusticia, segons que li apparia iust, e segons costumes e leys.
+
+
+
+   [LIII] Lo dret senyor deu haver lo forescapi quant se ven possessio que’s te per ell dins los murs de Perpinya. E si lo comprador amonestat pe[r] lo dret sen- yor no li vol pagar lo forescapi, ne fer dret del forescapi en poder del dret sen- yor, e lo dret senyor no·l vol gitar de la possessio, pot la possessio emparar, fins que li sia pagat lo forescapi, o fermat
+
+directum de foriscapio in posse suo, ita quod tantum ab eo petat foriscapium et noluit eum expellere de possessione illius rei, tunc is pro quo tenetur, potest rem illam emparare, quousque ei solva- tur foriscapium vel directum sit ei fir- matum de foriscapio quantum debet solvi. Quo facto emparamentum solvi- tur ipso iure. Si vero censum non solve- rit potest dominus pro quo tenetur por- tas de domo extrahere, sine pena.
+   [LIV] De iudeis non habentibus privilegium.
+   Item, iudei nullum habent privile- gium contra homines Perpinyani, per aliquam concessionem eis factam vel alio modo.
+   [LV] De domino non potente mutare macellum.
+   Item, dominus non potest mutare macellum, neque aliquis alius. Et si ali- que tabule in macello ponerentur preter consuetas, debet eas inde baiulus expe- llere. Qui baiulus, si facere noluerit, licet impune illud facere probis hominibus ville Perpinyani.
+[LVI]	De omnibus que fiunt in villa
+Perpiniani.
+   Item, omnia que fiunt in villa Perpin- yani spectant ad iuridictionem baiuli. Que vero fiunt extra, ad vicariunt spec- tant, qui nullo casu in villa Perpinyani vel terminis eius suam potest iuridictio- nem exercere. Si tamen extra villam in terminis eius aliquis extraneus delictum aliquod comiserit, tunc si vicarius capit illum priusquam baiulus, delictum illud expectat ad iuridictionem suam.
+   [LVII] De vicario non habente iu- risdictionem.
+   Item, vicarius non habet iuridictio- nem seu potestatem ullam in hominibus ville Perpinyani.
+
+dret per aquel, et asso fet l’empara es nul·la. E si no li paga lo cens, lo senyor li pot trer les portes de la casa sens pena.
+
+
+
+
+
+
+   [LIV] Los juheus no han alcun pri- vilegi contre els homens de Perpinya per concessio a ells feta, o en altra manera.
+
+
+
+   [LV] Lo senyor de Perpinya ne al- cun altre no pot mudar lo masell. E si alcunes taules eren posades en lo masel oltre les acostumadas, lo balle les ne pot gitar, e si no u fa los homens de Perpinya sens pena o poden fer.
+
+
+
+   [LVI] Tot so que’s fa dins la vila de Perpinya pertayn a iuredictio del ba- lle, e so que’s fa fora la vila, a iuridictio del veguer, qui en degun cas dins la vila de Perpinya o terme de aquella pot exercir sa iuredictio. Si empero alcun strayn fora la vil·la de Perpinya en los termens de aquella fa alcun delicte, e lo veguer lo pren abans que’l balle, lo ve- guer lo pot punir.
+
+
+   [LVII] Lo veguer no ha iuredictio o poder alcun en los homens de Perpinya.
+
+   [LVIII] De hostiis clausis pro ali- quibus.
+   Item, si hostium alicuius clavetur pro aliquo debito vel alia de causa, licet habitanti in ea et aliis impune ingredi domum clavatam, per aliam partem quam voluerit domus clavate, tamen clavatura incorrupta manente.
+   [LIX] De conquerentibus de aliqui- bus baiulo vel vicario.
+   Item, si quis de Perpinyano conque- ratur baiulo vel vicario de alio, et non vult facere iusticiam, potest qui requirit iusticiam ob hoc pignorare ipsum baiu- lum vel vicarium sine omni pena.
+[LX]	De facientibus porticum.
+   Item, quicunque facit supra viam porticum vel ambanum, debet ipsum sic alte construere, ut quis in equo equitans libere possit transire. Quod si contra- rium fecerit potest baiulus ipsum com- pellere, ut secundum formam predictam consuetam dictum porticum habeat, et probi homines ville possunt hoc interdi- cere operariis.
+   [LXI] De conquerentibus super cau- sa peccuniaria.
+   Item, si quis de aliquo conqueritur super alicuius peccunie quantitate, et reus de quo facta est querimonia non vult inde firmare directum, potest do- mus eius clavari, et postmodum, post decem dies potest compelli ad venden- dum bona que habet, usque ad solutio- nem rei petite, et iuris quod inde debet habere baiulus ratione iusticie, nisi reus vellet firmare directum.
+[LXII]	De conquerentibus in cau-
+sis.
+   Item, statuimus ut nemo agens te- neatur in tota causa exprimere causam seu peticionis, dum tamen eam de pec-
+   
+[LVIII] Si la porta de alcun sera clavada per deute o altra raho, legut es a aquel qui hi habita entrar per altra part en la casa clavada sens alcuna pena, pus la clavadura romangua entira, e no to- chada.
+
+
+   [LIX] Si alcun de Perpenya se cla- ma d’altra al balle o veguer, e no li volen fer iusticia, pot lo demanador penyorar lo balle o veguer sens alcuna pena.
+
+
+
+   [LX] Qui fa portxe o enva dessus la carrera, lo deu fer tant alt que un hom cavalcant a cavall ne puxa franchament passar. E si lo contrari fahia, lo balle lo pot forsar que segons la forma dessús dita haia lo dit portxe; e los prohomens de la vila ho poden vedar als obrers.
+
+
+
+   [LXI] Si aquel de qui alcun se cla- ma d’alcuna quantitat de moneda no vol fermar dret, la casa sua pot esser cla- vada, e apres deu dies pot esser forçat de vendre los bens que aqui ha, fins a quan- titat del deute demanat e del dret que’n deu haver lo balle per raho de iusticia, si lo reu no vol fermar dret.
+
+
+
+
+   [LXII] Aquel qui demana alcuna quantitat no es tengut expressar la causa de sa demanda, pus fassa fe del deute per carta feta en la scrivania de Perpinya.
+
+cunia sibi solvenda faciat cum instru- mento publico facto in scribania Perpin- yani.
+   [LXIII] De obligantibus aliquam rem mobilem.
+   Item, consuetudo est, quod si quis rem mobilem uni obligaverit, et postmo- dum alii vendiderit vel obligaverit et tradiderit, pocior est in ipsa re secundus qui rem tenet.
+   [LXIV] De tenentibus aliquid pro aliquibus.
+   Item, si quis rem pro me tenet, et quia bona sua obligavit vel illa res peti- tur propter dictam obligationem, debet hec causa duci coram curia Perpinyani, non coram domino pro quo tenetur, quia de proprietate non agitur, sed de obliga- tione.
+   [LXV] De habentibus alodia in ali- quibus locis.
+   Item, si quis huius ville habens alo- dia in aliquo loco extra ville Perpinyani terminos, et super illis convenitur, debet causa duci coram baiulo, et baiulus in illis potest illum distringere.
+   [LXVI] De baiulo potente mutare sagiones.
+   Item, consuetudo est Perpinyani, quod quilibet baiulus tempore sui regi- minis, suo arbitrio et voluntate potest instituere sagionem unum vel plures, et destituere quandocunque vult, etiam sine causa, et alium vel alios statuere. Et non statuatur perpetuus sagio. Idem in precone, qui constituatur a curia con- silio proborum hominum ville.
+[LXVII] De processibus in causis. Item, est consuetudo quod si in pro-
+cessu cause ab interlocutoriis melioramen- tum postulatur, quod curia consilio potest
+
+
+
+
+   [LXIII] Si alcun ha obligada alcu- na cosa mobla a un, e puis l’a venuda o obligada et liurada a altre, lo segon qui ten la cosa es mellor en dret.
+
+
+
+   [LXIV] Si l’om qui te alcuna pos- sessio sots dreta senyoria d’altre ha obli- gats tots sos bens, e per aquela obligatio es demanada la dita possessio, se deu menar lo pleit davant la cort de Perpin- ya e no davant lo dret senyor.
+
+
+
+   [LXV] Si alcun hom de la vila ha alous fora los termes de la vila de Per- pinya, e es covengut sobre aquells, lo plet se deu menar davant lo balle, e lo balle lo pot en aquells destrenyer.
+
+
+   [LXVI] Lo balle de Perpinya du- rant lo temps de son offici pot crear sags e remoure axi com se vol, e encara sens causa, car sag no deu esser perpetual. E semblant es en crida qui es ordonat per lo balle, ab consell dels prohomens de la vila.
+
+
+
+
+   [LXVII] Esmena de interlocuto- ries se pot demanar en lo proces de la causa. E aquel dia meteis que es dona- da, la cort la pot confermar o revocar si esmena se’n demana, pus que’s fassa ab
+
+etiam ipsa die eadem vel alia infirmare vel confirmare interlocutoriam, a qua fuit pe- titum melioramentum, dum per alium ydoneum faciat consilio proborum homi- num, non illius qui illam protulit.
+   [LXVIII] De baiulo conquerente de aliquo.
+   Item, consuetudo quod si baiulus vel aliquis de curia conqueritur de aliquo super possessione vel pecunia, de illa questione nunquam detur iusticia.
+   [LXIX] De habitatoribus in Perpi- niano.
+   Item, nullus habetur nec defenditur sicut habitator Perpinyani, licet iurave- rit staticam, nisi ibi egerit continuam residenciam; exceptis temporibus mes- sium et vindemiarum, in quibus ipse cum uxore et familia sua potest abesse, causa fructuum recoligendorum.
+
+consell dels prohomens, no d’aquel qui la ha donada.
+
+
+
+   [LXVIII] Si lo balle o alcun de cort se clama de alcun, de aquella pos- sessio o moneda de que es lo clam, no’s pagua iusticia.
+
+
+   [LXIX] Negun es haut ne deffes axi com habitant de Perpinya, jatsia haia iurat l’estage, si aqui no fa conti- nua residencia; si donchs en temps de messes o de venimies que’s pot absentar ab sa casada per cullir sos fruyts.
+
+
+   Quas predictas consuetudines, dominus Iacobus Dei gratia rex Aragonum, Maioricarum et Valencie, comes Barchinone et Rossillionis, et dominus Montispe- sullani, laudavit et approbavit probis hominibus, et universitati ville Perpinyani.
+II 5
+   De les coses dejus scrites es costumat de no donar delme per homens de Perpenya, axi com se subsegueys.
+   Isti usus infra scripti et consuetudines, servantur in villa Perpinyani et semper fuerunt observati, a tanto tempore citra quo hominum memoria in contrarium non existit.
+   [I] Et primo nullus habitator ville Perpinyani dat, nec dare et solvere tenetur decimam de lana bestiarii sui, ubicumque illud teneat.
+   [II] Item nullus habitator Perpinyani tenetur dare de fructibus ovium et ca- prarum, nisi mediam decimam tantum, loco ubi tenet bestiare, et aliam medieta- tem Perpinyani.
+   [III] Item nullus habitator Perpinyani tenetur dare decimam de pullis, porce- llis, ovis, caseis, anceribus, neque de anets, neque de bestiis caballinis, nec bovinis, nec asininis, nec de buchs d’abelles.
+
+
+5 J. MAssot-ReynieR, Les Coutumes de Perpignan, pp. 35-36. Ferran vAlls-tAbeRneR, Els Costums
+de Perpinyà, pp. 47-49.
+
+   [IV] Item habitatores Perpinyani non consueverunt dare decimam nec primi- ciam de blado renadiu, nec de herba que non fuerit seminata, nec de herba semina- ta que detur bestiario suo, nec de herba que delletur, nec de falbis renadives.
+   [V] Item non est consuetum dari decima nec primicia de caulibus seminatis, nec de betis, lautucis, patronillano, de spinargiis, nec borragiis, nec de porrati, ni d’amols, nec de safrano, nec de naps, nec de fullacha que colligatur de bladis.
+   [VI] Item non est consuetum dari decima nec primicia de cucurbitis, citrullis, cucumeribus, mellonibus, bardalagiis, sirigia, alfavega, nec de menta.
+   [VII] Item non datur decima nec primicia de oliviis, nec de fructibus alborum aliquorum, nec de racemis quos alicui habuerint de ortis suis, nec de arundinibus, dec de lignis que habeantur in nemoribus hominum Perpinyani, seu aliquibus aliis possessionibus.
+[VIII] Item non datur decima nec primicia de pestello, nec de aliquibus ex-
+plets que fiant in marginibus seu marginatis.
+   [IX] Item est consuetudo quod homines Perpinyani consueverunt, omni tem- pore, congregare sua expleta, in quibuscumque termini, ea habuerint, in una area, et ibidem solvere terremerita et jura dominis, nec non et decimam et primiciam.
+   [X] Item non est consuetum dari decimam nec primiciam de aliquo expleto quod fit in malleolis, per regas inter dictos malleolos, sicut sunt falbe, mil, grua, ceyros, ordi ni forment, cebes, scalunyes, batibechs, vel similia, excepto tamen si esset seminatum totum, sicut esset campus: tunc solvatur decima et primicia.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+36. RECOGNOVERUNT PROCERES. 1283, ENERO, 11. BARCELONA
+
+   Pedro II el Grande concede a los ciudadanos de Barcelona el privilegio conocido como Recognoverunt proceres (por su encabezamiento en la versión latina), confir- mando otros privilegios otorgados por sus predecesores y por él mismo, así como antiguos usos y costumbres que ahora se fijan por escrito.
+   Original, en el Archivo de la Corona de Aragón, Cancillería, Consell de Cent, Pergaminos núm. 5131 1.
+   Copia en versión catalana, en la Real Biblioteca del Monasterio de El Escorial, Signatura O-I-12 (Códice del s. XIV), fols. 17-33 2.
+
+
+In Christi nomine.
+   Pateat universis presentibus et futu- ris quod cum nos Petrus, Dei gracia Aragonum et Sicilie rex, essemus in civi- tate Barchinone personaliter constituti pro generali curia celebranda cathalanis ibidem, probi homines et universitas eiusdem civitatis nobis humiliter suppli- carunt ut eis de gratia et misericordia nostra concederemus et approbaremus privilegia concessa eis per antecessores nostros, et antiquas consuetudines quas
+
+En nom Jesu Crist.
+   Sapien tots presents e esdevenidors que com nos, en Pere. per la gracia de Deu, d’Arago de Sicilia Rey, fossen en la ciutat de Barcelona personalment esta- blits per tenir aqui general cort als cata- lans, los promens e la univerçitat d’aque- lla ciutat a nos homilment sopplegaren que a ells de gracia e de misericordia nostra atorgassem e confermassem los privilegis a ells atorogats per nostres au- cessors, e les antigues costumes les quals
+
+
+
+      1 Existe copia del documento en el Archivo Histórico de la Ciudad de Barcelona, Pergaminos Municipales, 1A-105 (reseñado por María Cinta MAñé MAs, Catàleg dels pergamins municipals de Bar- celona, anys 885-1334, Archivo Municipal de Barcelona, Barcelona, 2004, doc. núm. 110, pp. 90-91). Y fue publicado en Constitucions y altres Drets de Cathalunya, Casa de Joan Pau Martí y Joseph Llopis Estampers, Barcelona, 1704, Vol. II, Lib. I, Tit. XIII, p. 39-51 (edición reimpresa con el mismo título en la Colección de Textos Juridics Catalans, Lleis i Costums IV/2, Generalitat de Catalunya, Barcelona, 1995). Otras ediciones en: Antoni M. ARAgó y Mª Mercè costA, Colección de documentos inéditos del Archivo de la Corona de Aragón. Privilegios reales concedidos a la ciudad de Barcelona, Vol. XLIII, Archivo de la Corona de Aragón, Barcelona, 1971, p. 8-17; y Raffaele di tucci, Il libro verde della città di Cagliari, Società Editoriale Italiana, Cagliari, 1925, doc. núm. XVII, pp. 84-102. En la edición actual los títulos de las costumbres se han tomado de la edición de 1704, ya que en el documento original no existían.
+2  Versión publicada por Josep RoviRA, «Recognoverunt proceres». Versión medieval catalana
+del privilegio así llamado, Departamento de Historia del Derecho de la Universidad de Barcelona, Barcelona, 1927.
+
+
+
+
+
+
+
+
+
+
