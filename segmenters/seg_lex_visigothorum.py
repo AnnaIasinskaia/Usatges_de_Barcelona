@@ -100,6 +100,9 @@ EXPECTED_IDS_BY_TITLE: Dict[Tuple[int, int], List[int]] = {
     (11, 5): [3, 5],
     (11, 6): [8],
     (11, 8): [1, 2, 8],
+    (12, 1): [1, 2, 3],
+    (12, 2): [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18],
+    (12, 3): [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
 }
 
 BOOK_PROFILE = {
@@ -113,6 +116,7 @@ BOOK_PROFILE = {
     9: {"body_mode": "casuistic", "body_start_window": 48, "anchor_candidates_limit": 14, "prefer_anchor_roles": ["body_leading", "mixed", "rubric"], "rubric_weight_bonus": 14, "mixed_weight_bonus": 20, "allow_rubric_extension": True, "allow_long_preamble_as_body": False, "min_words_if_no_continuation": 14, "min_words_relaxed": 8, "editorial_tolerance_at_start": 0, "editorial_tolerance_at_end": 0, "apparatus_hard_reject_threshold": 2, "boundary_break_strictness": "medium", "tail_trim_aggressiveness": "high", "dedupe_guard": "normal"},
     10: {"body_mode": "rhetorical", "body_start_window": 84, "anchor_candidates_limit": 22, "prefer_anchor_roles": ["mixed", "rubric", "body_leading"], "rubric_weight_bonus": 28, "mixed_weight_bonus": 34, "allow_rubric_extension": True, "allow_long_preamble_as_body": True, "min_words_if_no_continuation": 24, "min_words_relaxed": 11, "editorial_tolerance_at_start": 1, "editorial_tolerance_at_end": 0, "apparatus_hard_reject_threshold": 2, "boundary_break_strictness": "medium", "tail_trim_aggressiveness": "very_high", "dedupe_guard": "normal"},
     11: {"body_mode": "rhetorical", "body_start_window": 86, "anchor_candidates_limit": 22, "prefer_anchor_roles": ["mixed", "rubric", "body_leading"], "rubric_weight_bonus": 28, "mixed_weight_bonus": 32, "allow_rubric_extension": True, "allow_long_preamble_as_body": True, "min_words_if_no_continuation": 24, "min_words_relaxed": 11, "editorial_tolerance_at_start": 1, "editorial_tolerance_at_end": 0, "apparatus_hard_reject_threshold": 2, "boundary_break_strictness": "medium", "tail_trim_aggressiveness": "very_high", "dedupe_guard": "normal"},
+    12: {"body_mode": "rhetorical", "body_start_window": 86, "anchor_candidates_limit": 22, "prefer_anchor_roles": ["mixed", "rubric", "body_leading"], "rubric_weight_bonus": 28, "mixed_weight_bonus": 32, "allow_rubric_extension": True, "allow_long_preamble_as_body": True, "min_words_if_no_continuation": 24, "min_words_relaxed": 11, "editorial_tolerance_at_start": 1, "editorial_tolerance_at_end": 0, "apparatus_hard_reject_threshold": 2, "boundary_break_strictness": "medium", "tail_trim_aggressiveness": "very_high", "dedupe_guard": "normal"},
 }
 
 TITLE_OVERRIDE = {
@@ -131,11 +135,17 @@ TITLE_OVERRIDE = {
     (11, 2): {"body_start_window": 96, "anchor_candidates_limit": 26},
     (11, 3): {"body_start_window": 92, "anchor_candidates_limit": 24},
     (11, 5): {"body_start_window": 88, "anchor_candidates_limit": 20},
+    (12, 1): {"body_start_window": 96, "anchor_candidates_limit": 26},
+    (12, 2): {"body_start_window": 96, "anchor_candidates_limit": 26},
+    (12, 3): {"body_start_window": 92, "anchor_candidates_limit": 24},
 }
 
 
 def _cfg_for(book: int, title: int) -> Dict[str, object]:
-    cfg = dict(BOOK_PROFILE[book])
+    base = BOOK_PROFILE.get(book)
+    if base is None:
+        base = BOOK_PROFILE[11] if (book is not None and book >= 10) else BOOK_PROFILE[2]
+    cfg = dict(base)
     cfg.update(TITLE_OVERRIDE.get((book, title), {}))
     return cfg
 
@@ -151,7 +161,7 @@ _ORDINAL_BOOK_MAP: Dict[str, int] = {
 }
 _PAGE_HEADER_RE = re.compile(r"LEX\s+VISIGOTHORUM|LIBER\s+IUDICIORUM", re.IGNORECASE)
 _LIBER_RE = re.compile(r"^\s*LIBER\s+([A-Z0-9IVXLCM]+)\.?\s*$", re.IGNORECASE)
-_TITULUS_RE = re.compile(r"^\s*([IVXLCM]+)\.\s*TITULUS\b", re.IGNORECASE)
+_TITULUS_RE = re.compile(r"^\s*([IVXLCM]+)\s*[\.,]\s*TITULUS\b", re.IGNORECASE)
 _ROMAN_ONLY_RE = re.compile(r"^[IVXLCDM]+$", re.IGNORECASE)
 _LAW_ID_RE = re.compile(
     r"(?P<book>\b(?:[IVXLCDM]+|\d+|[IVX1l]{1,8})\b)\s*[,|]\s*(?P<title>\d{1,2}|[IVXLCDM]{1,6})\s*[,|]\s*(?P<law>\d{1,3}|[IVXLCDM]{1,8})\.",
@@ -384,20 +394,31 @@ def _strip_title_frontmatter(annotated_lines):
             ordered_keys.append(key)
     for key in ordered_keys:
         rows = buckets[key]
-        if key[0] is None or key[1] is None:
+        book, title = key
+        if book is None or title is None:
             result.extend(rows)
             continue
+        cfg = _cfg_for(book, title)
         first_law_idx = None
+        first_body_idx = None
         for pos, row in enumerate(rows):
             line = row[3]
             if not line:
                 continue
+            low = line.lower()
             if re.search(r"\blemmata\b|\bindex capitulorum\b", line, re.IGNORECASE):
+                continue
+            if _is_page_header_or_furniture(line) or _is_structural_stop_line(line):
                 continue
             if _LAW_ID_RE.search(line):
                 first_law_idx = pos
                 break
-        result.extend(rows if first_law_idx is None else rows[first_law_idx:])
+            if first_body_idx is None and _looks_like_main_law_body(line, cfg):
+                first_body_idx = pos
+        start_pos = first_law_idx
+        if start_pos is None:
+            start_pos = first_body_idx if first_body_idx is not None else 0
+        result.extend(rows[start_pos:])
     return result
 
 
