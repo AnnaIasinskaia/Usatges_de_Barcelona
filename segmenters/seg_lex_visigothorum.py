@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 """
-Lex Visigothorum segmenter, migration version v6.
+Lex Visigothorum segmenter, migration version v7.
 
-v6 applies three targeted fixes on top of the repaired v5/v3 line:
-- tolerant junk-prefix stripping for header-like lines;
-- a fallback for first-law/title context when the book token is missing;
-- limited alt-number coverage bridging for still-missing expected slots.
+v7 applies two very narrow source-driven fixes on top of v6:
+- OCR-family recovery for book tokens "\1 -> VI" and "\11 -> VIII" on header-like lines;
+- suppression of the false duplicate "4.2.20" when "4.2.19(20)" already exists, because in the physical source the final law of title IV.2 is "IV.2.19(20)" and there is no separate "IV.2.20".
 
-It keeps the successful v3/v5 architecture and avoids broad new experiments.
+It keeps the successful v6 architecture and only targets the confirmed remaining issues.
 """
 
 import re
@@ -164,9 +163,18 @@ def _contains_cyrillic(s: str) -> bool:
 
 
 def _normalize_booktok_surface(token: str, current_book: Optional[int]) -> str:
-    t = (token or "").strip().upper().translate(_MARKER_CYRILLIC_MAP)
-    t = t.replace("J", "I").replace("!", "I").replace("|", "I")
-    t = t.replace("\\", "").replace("/", "").replace("№", "")
+    raw = (token or "").strip().upper().translate(_MARKER_CYRILLIC_MAP)
+    t = raw.replace("J", "I").replace("!", "I").replace("|", "I")
+    compact = t.replace("№", "")
+
+    # confirmed OCR families seen in the source
+    if current_book == 8 and compact in {r"\11", "11", r"\1I", "1I", "I1", r"\11I"}:
+        return "VIII"
+    if current_book == 6 and compact in {r"\1", "1", "I", "V1", "V!"}:
+        return "VI"
+    if current_book == 7 and compact in {"V11", "VI1", "V1I", r"\11"}:
+        return "VII"
+
     # very common OCR families in this source
     if t in {"XH", "XN", "XHI", "XIII"}:
         return "XII"
@@ -551,6 +559,14 @@ def segment_lex_visigothorum(text: str, source_name: str) -> List[Tuple[str, str
 
     if bridged:
         segments.extend(bridged)
+
+    # In title IV.2 the physical source ends with IV.2.19(20); there is no separate IV.2.20.
+    if any(seg_id == f"{source_name}_4.2.19(20)" for seg_id, _ in segments):
+        segments = [
+            (seg_id, seg_text)
+            for seg_id, seg_text in segments
+            if seg_id != f"{source_name}_4.2.20"
+        ]
 
     dedup: "OrderedDict[str, str]" = OrderedDict()
     for seg_id, seg_text in segments:
