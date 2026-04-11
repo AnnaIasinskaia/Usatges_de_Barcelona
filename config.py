@@ -52,7 +52,7 @@ CORPORA = {
         "color": "#1f77b4",
     },
     "LexVisigothorum": {
-        "path": DATA_DIR / "legesvisigothor00zeumgoog_text.txt",
+        "path": DATA_DIR / "Lex_visigothorum_lat-1.txt",
         "kind": "latin_source",
         "display_ru": "Вестготская\nправда",
         "color": "#9467bd",
