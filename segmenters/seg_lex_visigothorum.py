@@ -3,18 +3,17 @@
 from __future__ import annotations
 
 """
-Lex Visigothorum segmenter, migration version v3.
+Lex Visigothorum segmenter, migration version v5.
 
-Design goals for this version:
-- keep v2 behavior where it works;
-- fix OCR-corrupted marker lines (esp. books 3 and 11);
-- stay close to the old high-coverage segmenter;
-- keep Novella laws instead of dropping them;
-- drop books 13+ as OCR noise;
-- treat ANTIQUA / FLAVIUS / NOVELLA as heading metadata, not body text;
-- strip the editor-added pseudo-title conservatively;
-- preserve physical ids like 2.5.3(4), but keep base-slot validation anchored
-  to the printed law number before parentheses.
+v5 is a targeted header-recovery patch on top of the successful v3 branch.
+It keeps the overall architecture stable and only expands recognition for the
+remaining OCR families seen in the source:
+- corrupted book tokens in law/title heads, especially III and XII families
+  (e.g. Ill / 11 / 4 inside book III, and XH / ХН / X1I inside book XII);
+- Novella heads written as (X.2.5) Novella ...
+- law heads with separated alt-number, e.g. X.2.6 (7). ...
+
+It deliberately does NOT reintroduce broad global normalization experiments.
 """
 
 import re
@@ -100,14 +99,24 @@ _ORDINAL_BOOK_MAP: Dict[str, int] = {
     "DUODECIMUS": 12,
 }
 
-_LEAD_TOKEN = r"(?P<booktok>[IVXLCDM1l|\\/№]+|\d+)"
-_BOOK_RE = re.compile(r"^\s*Liber\s+(?P<book>[A-Za-z]+)\.?(?:\s+.+)?$", re.IGNORECASE)
+_LEAD_TOKEN = r"(?P<booktok>[IVXLCDM1l|\\/№!]+|\d+|[A-Za-zА-Яа-я]+)"
+_BOOK_RE = re.compile(r"^\s*Liber\s+(?P<book>[A-Za-z]+)\.?(?:\s+.+)?$".replace(" ?", "?"), re.IGNORECASE)
 _TITLE_RE = re.compile(
     rf"^\s*[\\|/№]*\s*{_LEAD_TOKEN}\.(?P<title>\d{{1,2}})\.\s+(?P<rest>.+?)\s*$",
     re.IGNORECASE,
 )
+# ordinary law head: II.5.3(4). ... or II.5.3 (4). ... or (II.5.3). ...
 _LAW_RE = re.compile(
-    rf"^\s*\(?\s*[\\|/№]*\s*{_LEAD_TOKEN}\.(?P<title>\d{{1,2}})\.(?P<law>\d{{1,3}})(?:\((?P<altlaw>\d{{1,3}})\))?\.\s*\)?\s*(?P<rest>.*)$",
+    rf"^\s*\(?\s*[\\|/№]*\s*{_LEAD_TOKEN}\."
+    rf"(?P<title>\d{{1,2}})\.(?P<law>\d{{1,3}})"
+    rf"(?:\s*\((?P<altlaw>\d{{1,3}})\))?\s*\)?\.\s*(?P<rest>.*)$",
+    re.IGNORECASE,
+)
+# novella form without the final dot after the numeric id: (X.2.5) Novella ...
+_NOVELLA_HEAD_RE = re.compile(
+    rf"^\s*\(\s*[\\|/№]*\s*{_LEAD_TOKEN}\."
+    rf"(?P<title>\d{{1,2}})\.(?P<law>\d{{1,3}})\s*\)\s*"
+    rf"(?P<rest>NOVELLA\b.*)$",
     re.IGNORECASE,
 )
 
@@ -121,22 +130,15 @@ _PSEUDOTITLE_START_RE = re.compile(r"^(?:De|Quod|Qualis|Quo\s+modo|Ut|Ne|Si|Null
 _BODY_START_RE = re.compile(r"^(?:Si|Siquis|Si\s+quis|Quod|Quodsi|Quicumque|Quoties|Qui|Nullus|Omnis|Maritus|Formandarum|Tunc|Erit|Venditio|Conmutatio|Romanus|Mater|Pater|Femina|Salutare|Pacta|Placita)\b", re.IGNORECASE)
 _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
 
-
 _MARKER_CYRILLIC_MAP = str.maketrans({
     "Х": "X", "х": "x",
     "І": "I", "і": "i",
     "Ѵ": "V", "ѵ": "v",
     "Ү": "Y", "ү": "y",
+    "Н": "H", "н": "h",
+    "М": "M", "м": "m",
+    "О": "O", "о": "o",
 })
-
-
-def _normalize_marker_line(line: str) -> str:
-    s = line.translate(_MARKER_CYRILLIC_MAP)
-    # OCR sometimes turns roman I into ! inside law/title markers: Х!.2.1., X!.1.1., etc.
-    s = re.sub(r'^([IVXLCDMivxlcdmXx])!', r'\1I', s)
-    s = re.sub(r'^([IVXLCDMivxlcdmXx]{2})!', r'\1I', s)
-    return s
-
 
 
 def _normalize_text(text: str) -> str:
@@ -155,11 +157,44 @@ def _contains_cyrillic(s: str) -> bool:
     return any("\u0400" <= ch <= "\u04FF" for ch in s)
 
 
+def _normalize_booktok_surface(token: str, current_book: Optional[int]) -> str:
+    t = (token or "").strip().upper().translate(_MARKER_CYRILLIC_MAP)
+    t = t.replace("J", "I").replace("!", "I").replace("|", "I")
+    t = t.replace("\\", "").replace("/", "").replace("№", "")
+    # very common OCR families in this source
+    if t in {"XH", "XN", "XHI", "XIII"}:
+        return "XII"
+    if t in {"X1I", "XI1", "X11", "X!I", "XI!"}:
+        return "XII"
+    if t in {"ILL", "IIL", "LII", "LLL"}:
+        return "III"
+    if current_book == 3 and t in {"11", "1I", "I1", "4"}:
+        return "III"
+    if current_book == 12 and t in {"11", "XI", "X1", "XH", "XN"}:
+        return "XII"
+    if current_book == 11 and t in {"XI", "X1", "XI1", "X!"}:
+        return "XI"
+    return t
+
+
+def _normalize_marker_line(line: str, current_book: Optional[int] = None) -> str:
+    s = line.translate(_MARKER_CYRILLIC_MAP)
+    # normalize the leading book token only on header-like lines
+    m = re.match(r"^(\s*\(?\s*[\\|/№]*\s*)([^\s.()]+)(?=\.\d{1,2}\.)", s)
+    if m:
+        prefix, token = m.group(1), m.group(2)
+        norm_tok = _normalize_booktok_surface(token, current_book)
+        s = prefix + norm_tok + s[m.end(2):]
+    # OCR sometimes turns roman I into ! inside markers
+    s = re.sub(r'^([IVXLCDMivxlcdmXx]{1,4})!', lambda m: m.group(1) + 'I', s)
+    # normalize separated alt-number spacing: X.2.6 (7). -> X.2.6(7).
+    s = re.sub(r"(\.\d{1,3})\s+\((\d{1,3})\)\.", r"\1(\2).", s)
+    return s
+
+
 def _roman_like_to_int(token: str) -> Optional[int]:
-    tok = token.strip().upper().replace("J", "I").replace("1", "I")
-    tok = tok.replace("X1I", "XII").replace("X1", "XI")
-    tok = tok.replace("|", "I").replace("\\", "").replace("/", "").replace("№", "")
-    tok = tok.replace("ILL", "III").replace("LLL", "III")
+    tok = _normalize_booktok_surface(token, None)
+    tok = tok.replace("1", "I")
     values = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100, "D": 500, "M": 1000}
     if not tok or any(ch not in values for ch in tok):
         return None
@@ -175,8 +210,8 @@ def _roman_like_to_int(token: str) -> Optional[int]:
     return total if total > 0 else None
 
 
-def _book_token_to_int(token: str) -> Optional[int]:
-    tok = token.strip().upper().replace("|", "I")
+def _book_token_to_int(token: str, current_book: Optional[int] = None) -> Optional[int]:
+    tok = _normalize_booktok_surface(token, current_book)
     if tok.isdigit():
         val = int(tok)
         return val if 1 <= val <= 12 else None
@@ -187,15 +222,22 @@ def _book_token_to_int(token: str) -> Optional[int]:
 
 
 def _resolve_book_from_context(booktok: str, current_book: Optional[int]) -> Optional[int]:
-    parsed = _book_token_to_int(booktok)
+    parsed = _book_token_to_int(booktok, current_book)
     if current_book is None:
         return parsed
     if parsed == current_book:
         return current_book
-    tok = (booktok or "").strip()
-    if any(ch in tok for ch in "|\\/№"):
+    tok = _normalize_booktok_surface(booktok, current_book)
+    # trust context in known catastrophic families
+    if current_book == 3 and tok in {"III", "11", "1I", "I1", "4", "ILL", "IIL", "LLL"}:
+        return 3
+    if current_book == 12 and tok in {"XII", "XH", "XN", "X1I", "XI1", "X11", "XI"}:
+        return 12
+    if any(ch in (booktok or "") for ch in "|\\/№"):
         return current_book
-    if current_book in {2, 3} and parsed in {1, 2, 3, 11}:
+    if current_book in {2, 3} and parsed in {1, 2, 3, 4, 11}:
+        return current_book
+    if current_book == 12 and parsed in {10, 11, 12}:
         return current_book
     if parsed is None:
         return current_book
@@ -261,17 +303,13 @@ def _strip_editorial_prefix(lines: List[str]) -> List[str]:
     out = list(lines)
     if not out:
         return out
-
-    # strip heading labels from the first few lines only; do not overreach
     for i in range(min(3, len(out))):
         cleaned, _ = _strip_head_labels(out[i])
         out[i] = cleaned
-
     while out and not out[0].strip():
         out.pop(0)
     if not out:
         return out
-
     next_line = out[1].strip() if len(out) > 1 else None
     if _looks_like_editorial_pseudotitle(out[0], next_line):
         parts = _SENTENCE_SPLIT_RE.split(out[0].strip(), maxsplit=1)
@@ -279,7 +317,6 @@ def _strip_editorial_prefix(lines: List[str]) -> List[str]:
             out[0] = parts[1].strip()
         else:
             out.pop(0)
-
     while out and not out[0].strip():
         out.pop(0)
     return out
@@ -309,6 +346,19 @@ def _title_match(line: str, current_book: Optional[int]) -> Optional[Tuple[int, 
 
 
 def _law_match(line: str, current_book: Optional[int]) -> Optional[Tuple[int, int, int, Optional[int], str]]:
+    m = _NOVELLA_HEAD_RE.match(line)
+    if m:
+        book_no = _resolve_book_from_context(m.group("booktok"), current_book)
+        if book_no is None or not (1 <= book_no <= 12):
+            return None
+        title_no = int(m.group("title"))
+        law_no = int(m.group("law"))
+        if not (1 <= title_no <= 60 and 1 <= law_no <= 400):
+            return None
+        rest = (m.group("rest") or "").strip()
+        rest, _ = _strip_head_labels(rest)
+        return (book_no, title_no, law_no, None, rest)
+
     m = _LAW_RE.match(line)
     if not m:
         return None
@@ -373,11 +423,11 @@ def segment_lex_visigothorum(text: str, source_name: str) -> List[Tuple[str, str
         if not line:
             continue
 
-        marker_line = _normalize_marker_line(line)
+        marker_line = _normalize_marker_line(line, current_book)
 
         m_b = _BOOK_RE.match(marker_line)
         if m_b:
-            book_no = _book_token_to_int(m_b.group("book"))
+            book_no = _book_token_to_int(m_b.group("book"), current_book)
             if book_no == 1:
                 started = True
             if started:
@@ -392,7 +442,6 @@ def segment_lex_visigothorum(text: str, source_name: str) -> List[Tuple[str, str
         if not started:
             continue
 
-        # Try structural matches on a normalized marker line before discarding OCR-noisy lines.
         law = _law_match(marker_line, current_book)
         if law is not None:
             book_no, title_no, law_no, altlaw, rest = law
