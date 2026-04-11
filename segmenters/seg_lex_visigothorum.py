@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 """
-Lex Visigothorum segmenter, migration version v2.
+Lex Visigothorum segmenter, migration version v3.
 
 Design goals for this version:
+- keep v2 behavior where it works;
+- fix OCR-corrupted marker lines (esp. books 3 and 11);
 - stay close to the old high-coverage segmenter;
 - keep Novella laws instead of dropping them;
 - drop books 13+ as OCR noise;
@@ -118,6 +120,23 @@ _FLAVIUS_RE = re.compile(r"^FLAVIUS\b[^.]{0,120}(?:REX|PRINCEPS|GLORIOSUS)\b\.?"
 _PSEUDOTITLE_START_RE = re.compile(r"^(?:De|Quod|Qualis|Quo\s+modo|Ut|Ne|Si|Nullus|Qui|Quoties|Maritus|Mater|Pater|Femina)\b", re.IGNORECASE)
 _BODY_START_RE = re.compile(r"^(?:Si|Siquis|Si\s+quis|Quod|Quodsi|Quicumque|Quoties|Qui|Nullus|Omnis|Maritus|Formandarum|Tunc|Erit|Venditio|Conmutatio|Romanus|Mater|Pater|Femina|Salutare|Pacta|Placita)\b", re.IGNORECASE)
 _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
+
+
+_MARKER_CYRILLIC_MAP = str.maketrans({
+    "Х": "X", "х": "x",
+    "І": "I", "і": "i",
+    "Ѵ": "V", "ѵ": "v",
+    "Ү": "Y", "ү": "y",
+})
+
+
+def _normalize_marker_line(line: str) -> str:
+    s = line.translate(_MARKER_CYRILLIC_MAP)
+    # OCR sometimes turns roman I into ! inside law/title markers: Х!.2.1., X!.1.1., etc.
+    s = re.sub(r'^([IVXLCDMivxlcdmXx])!', r'\1I', s)
+    s = re.sub(r'^([IVXLCDMivxlcdmXx]{2})!', r'\1I', s)
+    return s
+
 
 
 def _normalize_text(text: str) -> str:
@@ -354,7 +373,9 @@ def segment_lex_visigothorum(text: str, source_name: str) -> List[Tuple[str, str
         if not line:
             continue
 
-        m_b = _BOOK_RE.match(line)
+        marker_line = _normalize_marker_line(line)
+
+        m_b = _BOOK_RE.match(marker_line)
         if m_b:
             book_no = _book_token_to_int(m_b.group("book"))
             if book_no == 1:
@@ -371,16 +392,8 @@ def segment_lex_visigothorum(text: str, source_name: str) -> List[Tuple[str, str
         if not started:
             continue
 
-        if _looks_like_noise(line):
-            continue
-
-        if _FRAGMENTA_RE.match(line):
-            flush_current()
-            current_book = None
-            current_title = None
-            continue
-
-        law = _law_match(line, current_book)
+        # Try structural matches on a normalized marker line before discarding OCR-noisy lines.
+        law = _law_match(marker_line, current_book)
         if law is not None:
             book_no, title_no, law_no, altlaw, rest = law
             flush_current()
@@ -391,7 +404,7 @@ def segment_lex_visigothorum(text: str, source_name: str) -> List[Tuple[str, str
             current_lines = [rest] if rest else []
             continue
 
-        title = _title_match(line, current_book)
+        title = _title_match(marker_line, current_book)
         if title is not None:
             book_no, title_no = title
             flush_current()
@@ -399,7 +412,16 @@ def segment_lex_visigothorum(text: str, source_name: str) -> List[Tuple[str, str
             current_title = title_no
             continue
 
-        if _TIT_SHORT_RE.match(line):
+        if _looks_like_noise(line):
+            continue
+
+        if _FRAGMENTA_RE.match(marker_line):
+            flush_current()
+            current_book = None
+            current_title = None
+            continue
+
+        if _TIT_SHORT_RE.match(marker_line):
             if current_law is not None and len(current_lines) <= 1:
                 current_lines.append(line)
             continue
