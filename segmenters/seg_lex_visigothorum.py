@@ -3,17 +3,14 @@
 from __future__ import annotations
 
 """
-Lex Visigothorum segmenter, migration version v5.
+Lex Visigothorum segmenter, migration version v6.
 
-v5 is a targeted header-recovery patch on top of the successful v3 branch.
-It keeps the overall architecture stable and only expands recognition for the
-remaining OCR families seen in the source:
-- corrupted book tokens in law/title heads, especially III and XII families
-  (e.g. Ill / 11 / 4 inside book III, and XH / ХН / X1I inside book XII);
-- Novella heads written as (X.2.5) Novella ...
-- law heads with separated alt-number, e.g. X.2.6 (7). ...
+v6 applies three targeted fixes on top of the repaired v5/v3 line:
+- tolerant junk-prefix stripping for header-like lines;
+- a fallback for first-law/title context when the book token is missing;
+- limited alt-number coverage bridging for still-missing expected slots.
 
-It deliberately does NOT reintroduce broad global normalization experiments.
+It keeps the successful v3/v5 architecture and avoids broad new experiments.
 """
 
 import re
@@ -100,7 +97,7 @@ _ORDINAL_BOOK_MAP: Dict[str, int] = {
 }
 
 _LEAD_TOKEN = r"(?P<booktok>[IVXLCDM1l|\\/№!]+|\d+|[A-Za-zА-Яа-я]+)"
-_BOOK_RE = re.compile(r"^\s*Liber\s+(?P<book>[A-Za-z]+)\.?(?:\s+.+)?$".replace(" ?", "?"), re.IGNORECASE)
+_BOOK_RE = re.compile(r"^\s*Liber\s+(?P<book>[A-Za-z]+)\.?(?:\s+.+)?$", re.IGNORECASE)
 _TITLE_RE = re.compile(
     rf"^\s*[\\|/№]*\s*{_LEAD_TOKEN}\.(?P<title>\d{{1,2}})\.\s+(?P<rest>.+?)\s*$",
     re.IGNORECASE,
@@ -117,6 +114,15 @@ _NOVELLA_HEAD_RE = re.compile(
     rf"^\s*\(\s*[\\|/№]*\s*{_LEAD_TOKEN}\."
     rf"(?P<title>\d{{1,2}})\.(?P<law>\d{{1,3}})\s*\)\s*"
     rf"(?P<rest>NOVELLA\b.*)$",
+    re.IGNORECASE,
+)
+
+_MISSING_BOOK_LAW_RE = re.compile(
+    r"^\s*[\\|/№.:;,_'`\"-]*\.\s*(?P<title>\d{1,2})\.(?P<law>\d{1,3})(?:\s*\((?P<altlaw>\d{1,3})\))?\s*\)?\.\s*(?P<rest>.*)$",
+    re.IGNORECASE,
+)
+_MISSING_BOOK_NOVELLA_RE = re.compile(
+    r"^\s*[\\|/№.:;,_'`\"-]*\.\s*(?P<title>\d{1,2})\.(?P<law>\d{1,3})\s*\)\s*(?P<rest>NOVELLA\b.*)$",
     re.IGNORECASE,
 )
 
@@ -177,10 +183,30 @@ def _normalize_booktok_surface(token: str, current_book: Optional[int]) -> str:
     return t
 
 
-def _normalize_marker_line(line: str, current_book: Optional[int] = None) -> str:
+def _normalize_marker_line(line: str, current_book: Optional[int] = None, current_title: Optional[int] = None) -> str:
     s = line.translate(_MARKER_CYRILLIC_MAP)
+    # If the book token is missing entirely (e.g. "\.6.1. ..."), recover it from context.
+    if current_book is not None:
+        m_missing = re.match(
+            r"^\s*[\\|/№.:;,_'`\"-]*\.\s*(?P<title>\d{1,2})\.(?P<law>\d{1,3})(?:\s*\((?P<altlaw>\d{1,3})\))?\s*\)?\.?(?P<tail>.*)$",
+            s,
+            re.IGNORECASE,
+        )
+        if m_missing:
+            title_no = int(m_missing.group('title'))
+            if current_title is None or title_no == current_title:
+                law_no = m_missing.group('law')
+                alt = m_missing.group('altlaw')
+                tail = (m_missing.group('tail') or '').lstrip()
+                rebuilt = f"{current_book}.{title_no}.{law_no}"
+                if alt:
+                    rebuilt += f"({alt})"
+                rebuilt += "."
+                if tail:
+                    rebuilt += " " + tail
+                s = rebuilt
     # normalize the leading book token only on header-like lines
-    m = re.match(r"^(\s*\(?\s*[\\|/№]*\s*)([^\s.()]+)(?=\.\d{1,2}\.)", s)
+    m = re.match(r'^(\s*\(?\s*[\|/№]*\s*)([^\s.()]+)(?=\.\d{1,2}\.)', s)
     if m:
         prefix, token = m.group(1), m.group(2)
         norm_tok = _normalize_booktok_surface(token, current_book)
@@ -189,8 +215,9 @@ def _normalize_marker_line(line: str, current_book: Optional[int] = None) -> str
     s = re.sub(r'^([IVXLCDMivxlcdmXx]{1,4})!', lambda m: m.group(1) + 'I', s)
     # normalize separated alt-number spacing: X.2.6 (7). -> X.2.6(7).
     s = re.sub(r"(\.\d{1,3})\s+\((\d{1,3})\)\.", r"\1(\2).", s)
+    # tolerate 1-2 junk characters before a plausible header token
+    s = re.sub(r"^\s*[;:,_`\"'-]{1,2}(?=[IVXLCDM0-9A-Za-zА-Яа-я]+\.\d{1,2}\.)", "", s)
     return s
-
 
 def _roman_like_to_int(token: str) -> Optional[int]:
     tok = _normalize_booktok_surface(token, None)
@@ -345,7 +372,7 @@ def _title_match(line: str, current_book: Optional[int]) -> Optional[Tuple[int, 
     return (book_no, title_no)
 
 
-def _law_match(line: str, current_book: Optional[int]) -> Optional[Tuple[int, int, int, Optional[int], str]]:
+def _law_match(line: str, current_book: Optional[int], current_title: Optional[int] = None) -> Optional[Tuple[int, int, int, Optional[int], str]]:
     m = _NOVELLA_HEAD_RE.match(line)
     if m:
         book_no = _resolve_book_from_context(m.group("booktok"), current_book)
@@ -359,8 +386,28 @@ def _law_match(line: str, current_book: Optional[int]) -> Optional[Tuple[int, in
         rest, _ = _strip_head_labels(rest)
         return (book_no, title_no, law_no, None, rest)
 
+    m = _MISSING_BOOK_NOVELLA_RE.match(line)
+    if m and current_book is not None:
+        title_no = int(m.group("title"))
+        if current_title is None or title_no == current_title:
+            law_no = int(m.group("law"))
+            rest = (m.group("rest") or "").strip()
+            rest, _ = _strip_head_labels(rest)
+            return (current_book, title_no, law_no, None, rest)
+
     m = _LAW_RE.match(line)
     if not m:
+        m = _MISSING_BOOK_LAW_RE.match(line)
+        if m and current_book is not None:
+            title_no = int(m.group("title"))
+            if current_title is None or title_no == current_title:
+                law_no = int(m.group("law"))
+                altlaw = int(m.group("altlaw")) if m.group("altlaw") else None
+                if not (1 <= title_no <= 60 and 1 <= law_no <= 400):
+                    return None
+                rest = (m.group("rest") or "").strip()
+                rest, _ = _strip_head_labels(rest)
+                return (current_book, title_no, law_no, altlaw, rest)
         return None
     book_no = _resolve_book_from_context(m.group("booktok"), current_book)
     if book_no is None or not (1 <= book_no <= 12):
@@ -373,7 +420,6 @@ def _law_match(line: str, current_book: Optional[int]) -> Optional[Tuple[int, in
     rest = (m.group("rest") or "").strip()
     rest, _ = _strip_head_labels(rest)
     return (book_no, title_no, law_no, altlaw, rest)
-
 
 def _format_seg_id(source_name: str, book: int, title: int, law: int, altlaw: Optional[int]) -> str:
     if altlaw is not None:
@@ -423,7 +469,7 @@ def segment_lex_visigothorum(text: str, source_name: str) -> List[Tuple[str, str
         if not line:
             continue
 
-        marker_line = _normalize_marker_line(line, current_book)
+        marker_line = _normalize_marker_line(line, current_book, current_title)
 
         m_b = _BOOK_RE.match(marker_line)
         if m_b:
@@ -442,7 +488,7 @@ def segment_lex_visigothorum(text: str, source_name: str) -> List[Tuple[str, str
         if not started:
             continue
 
-        law = _law_match(marker_line, current_book)
+        law = _law_match(marker_line, current_book, current_title)
         if law is not None:
             book_no, title_no, law_no, altlaw, rest = law
             flush_current()
@@ -479,6 +525,32 @@ def segment_lex_visigothorum(text: str, source_name: str) -> List[Tuple[str, str
             current_lines.append(line)
 
     flush_current()
+
+    # Bridge a few still-missing expected slots using alt-numbered physical ids.
+    produced_base_by_title: Dict[Tuple[int, int], Set[int]] = {}
+    for seg_id, _seg_text in segments:
+        tail = seg_id.split("_", 1)[1]
+        m = re.match(r"^(\d+)\.(\d+)\.(\d+)(?:\((\d+)\))?$", tail)
+        if not m:
+            continue
+        b, t, l = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        produced_base_by_title.setdefault((b, t), set()).add(l)
+
+    bridged: List[Tuple[str, str]] = []
+    for seg_id, seg_text in segments:
+        tail = seg_id.split("_", 1)[1]
+        m = re.match(r"^(\d+)\.(\d+)\.(\d+)\((\d+)\)$", tail)
+        if not m:
+            continue
+        b, t, l, alt = map(int, m.groups())
+        expected = set(EXPECTED_IDS_BY_TITLE.get((b, t), []))
+        present = produced_base_by_title.get((b, t), set())
+        if alt in expected and alt not in present:
+            bridged.append((f"{source_name}_{b}.{t}.{alt}", seg_text))
+            present.add(alt)
+
+    if bridged:
+        segments.extend(bridged)
 
     dedup: "OrderedDict[str, str]" = OrderedDict()
     for seg_id, seg_text in segments:
