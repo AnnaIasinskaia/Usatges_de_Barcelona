@@ -1,35 +1,82 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-Segmenter for Lex Visigothorum based on the new Google Books text edition.
-
-Новый вариант ориентирован на OCR-текст из издания Zeumer и на unified-интерфейс:
-сегментер сам читает файл и возвращает list[(id, text)].
-
-Основная структурная единица:
-    одна lex = один сегмент
-
-ID строится осмысленно и стабильно:
-    LexVisigoth_<book>.<title>.<law>
-например:
-    LexVisigoth_1.1.1
-    LexVisigoth_2.5.19
-    LexVisigoth_12.3.28
-"""
-
 from __future__ import annotations
+
+"""
+Lex Visigothorum segmenter, migration version v7.
+
+v7 applies two very narrow source-driven fixes on top of v6:
+- OCR-family recovery for book tokens "\1 -> VI" and "\11 -> VIII" on header-like lines;
+- suppression of the false duplicate "4.2.20" when "4.2.19(20)" already exists, because in the physical source the final law of title IV.2 is "IV.2.19(20)" and there is no separate "IV.2.20".
+
+It keeps the successful v6 architecture and only targets the confirmed remaining issues.
+"""
 
 import re
 from collections import OrderedDict
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 from .seg_common import clean_text, read_source_file, validate_segments
 
-
-# ---------------------------------------------------------------------------
-# OCR / heading helpers
-# ---------------------------------------------------------------------------
+EXPECTED_IDS_BY_TITLE: Dict[Tuple[int, int], List[int]] = {
+    (1, 1): [1, 2, 3, 4, 5, 6, 7, 8, 9],
+    (1, 2): [1, 2, 3, 4, 5, 6],
+    (2, 1): [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31],
+    (2, 2): [1, 2, 3, 4, 5, 6, 7, 8, 9],
+    (2, 3): [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+    (2, 4): [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+    (2, 5): [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+    (3, 1): [1, 2, 3, 4, 5, 6, 7, 8, 9],
+    (3, 2): [1, 2, 3, 4, 5, 6, 7, 8],
+    (3, 3): [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+    (3, 4): [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18],
+    (3, 5): [1, 2, 3, 4, 5],
+    (3, 6): [1, 2, 3],
+    (4, 1): [1, 2, 3, 4, 5, 6, 7],
+    (4, 2): [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20],
+    (4, 3): [1, 2, 3, 4],
+    (4, 4): [1, 2, 3],
+    (4, 5): [1, 2, 3, 4, 5, 6, 7],
+    (5, 1): [1, 2, 3, 4],
+    (5, 2): [1, 2, 3, 4, 5, 6, 7],
+    (5, 3): [1, 2, 3, 4],
+    (5, 4): [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22],
+    (5, 5): [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+    (5, 6): [1, 2, 3, 4, 5, 6],
+    (5, 7): [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18],
+    (6, 1): [1, 2, 3, 4, 5, 6, 7],
+    (6, 2): [1, 2, 3, 4, 5],
+    (6, 3): [1, 2, 3, 4, 5, 6, 7],
+    (6, 4): [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+    (7, 1): [1, 2, 3, 4, 5],
+    (7, 2): [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23],
+    (7, 3): [1, 2, 3, 4, 5, 6],
+    (7, 4): [1, 2, 3, 4, 5, 6, 7],
+    (7, 5): [1, 2, 3, 4, 5, 6, 7, 8],
+    (7, 6): [1, 2, 3, 4, 5],
+    (8, 1): [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
+    (8, 2): [1, 2, 3],
+    (8, 3): [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17],
+    (8, 4): [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31],
+    (8, 5): [1, 2, 3, 4, 5, 6, 7, 8],
+    (8, 6): [1, 2, 3],
+    (9, 1): [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19],
+    (9, 2): [1, 2, 3, 4, 5, 6, 7, 8, 9],
+    (9, 3): [1, 2, 3, 4],
+    (10, 1): [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19],
+    (10, 2): [1, 2, 3, 4, 5, 6],
+    (10, 3): [1, 2, 3, 4, 5],
+    (11, 1): [1, 2, 3, 4, 5, 6, 7, 8],
+    (11, 2): [1, 2],
+    (11, 3): [1, 2, 3, 4],
+    (12, 1): [1, 2],
+    (12, 2): [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17],
+    (12, 3): [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28],
+}
+EXPECTED_ID_SET: Set[Tuple[int, int, int]] = {
+    (b, t, l) for (b, t), laws in EXPECTED_IDS_BY_TITLE.items() for l in laws
+}
 
 _ORDINAL_BOOK_MAP: Dict[str, int] = {
     "PRIMUS": 1,
@@ -40,6 +87,7 @@ _ORDINAL_BOOK_MAP: Dict[str, int] = {
     "SEXTUS": 6,
     "SEPTIMUS": 7,
     "OCTAVUS": 8,
+    "OCTABUS": 8,
     "OCTAUUS": 8,
     "NONUS": 9,
     "DECIMUS": 10,
@@ -47,51 +95,144 @@ _ORDINAL_BOOK_MAP: Dict[str, int] = {
     "DUODECIMUS": 12,
 }
 
-_LIBER_RE = re.compile(r"^\s*LIBER\s+([A-Z0-9IVXLCM]+)\.?\s*$", re.IGNORECASE)
-_TITULUS_RE = re.compile(
-    r"^\s*([IVXLCM]+)\.\s*TITULUS\s*[:.]?\s*(.+?)\s*$",
+_LEAD_TOKEN = r"(?P<booktok>[IVXLCDM1l|\\/№!]+|\d+|[A-Za-zА-Яа-я]+)"
+_BOOK_RE = re.compile(r"^\s*Liber\s+(?P<book>[A-Za-z]+)\.?(?:\s+.+)?$", re.IGNORECASE)
+_TITLE_RE = re.compile(
+    rf"^\s*[\\|/№]*\s*{_LEAD_TOKEN}\.(?P<title>\d{{1,2}})\.\s+(?P<rest>.+?)\s*$",
+    re.IGNORECASE,
+)
+# ordinary law head: II.5.3(4). ... or II.5.3 (4). ... or (II.5.3). ...
+_LAW_RE = re.compile(
+    rf"^\s*\(?\s*[\\|/№]*\s*{_LEAD_TOKEN}\."
+    rf"(?P<title>\d{{1,2}})\.(?P<law>\d{{1,3}})"
+    rf"(?:\s*\((?P<altlaw>\d{{1,3}})\))?\s*\)?\.\s*(?P<rest>.*)$",
+    re.IGNORECASE,
+)
+# novella form without the final dot after the numeric id: (X.2.5) Novella ...
+_NOVELLA_HEAD_RE = re.compile(
+    rf"^\s*\(\s*[\\|/№]*\s*{_LEAD_TOKEN}\."
+    rf"(?P<title>\d{{1,2}})\.(?P<law>\d{{1,3}})\s*\)\s*"
+    rf"(?P<rest>NOVELLA\b.*)$",
     re.IGNORECASE,
 )
 
-_NUMERIC_LEX_RE = re.compile(
-    r"^\s*(?P<book>[IVX1l]+|\d+)\s*,\s*(?P<title>\d+)\s*,\s*(?P<law>\d+)\.\s*(?P<rest>.*)$",
+_MISSING_BOOK_LAW_RE = re.compile(
+    r"^\s*[\\|/№.:;,_'`\"-]*\.\s*(?P<title>\d{1,2})\.(?P<law>\d{1,3})(?:\s*\((?P<altlaw>\d{1,3})\))?\s*\)?\.\s*(?P<rest>.*)$",
+    re.IGNORECASE,
+)
+_MISSING_BOOK_NOVELLA_RE = re.compile(
+    r"^\s*[\\|/№.:;,_'`\"-]*\.\s*(?P<title>\d{1,2})\.(?P<law>\d{1,3})\s*\)\s*(?P<rest>NOVELLA\b.*)$",
     re.IGNORECASE,
 )
 
-_INLINE_ROMAN_HEADING_RE = re.compile(
-    r"^\s*(?P<roman>[A-Za-z0-9]+)\.?\s+(?P<rest>.+?)\s*$"
-)
+_PAGE_NUMBER_RE = re.compile(r"^\s*\d{1,4}\s*$")
+_RUSSIAN_HEADING_RE = re.compile(r"^\s*Книга\s+|^\s*ТЕКСТ\.", re.IGNORECASE)
+_FRAGMENTA_RE = re.compile(r"^\s*Fragmenta\s+Parisina\b", re.IGNORECASE)
+_TIT_SHORT_RE = re.compile(r"^\s*Tit\.\s+", re.IGNORECASE)
+_HEAD_LABEL_RE = re.compile(r"^(?:ANTIQUA\b|NOVELLA\b|LEX\b|ITEM\b)", re.IGNORECASE)
+_FLAVIUS_RE = re.compile(r"^FLAVIUS\b[^.]{0,120}(?:REX|PRINCEPS|GLORIOSUS)\b\.?", re.IGNORECASE)
+_PSEUDOTITLE_START_RE = re.compile(r"^(?:De|Quod|Qualis|Quo\s+modo|Ut|Ne|Si|Nullus|Qui|Quoties|Maritus|Mater|Pater|Femina)\b", re.IGNORECASE)
+_BODY_START_RE = re.compile(r"^(?:Si|Siquis|Si\s+quis|Quod|Quodsi|Quicumque|Quoties|Qui|Nullus|Omnis|Maritus|Formandarum|Tunc|Erit|Venditio|Conmutatio|Romanus|Mater|Pater|Femina|Salutare|Pacta|Placita)\b", re.IGNORECASE)
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
 
-_PURE_ROMAN_HEADING_RE = re.compile(r"^\s*(?P<roman>[A-Za-z0-9]+)\.\s*$")
+_MARKER_CYRILLIC_MAP = str.maketrans({
+    "Х": "X", "х": "x",
+    "І": "I", "і": "i",
+    "Ѵ": "V", "ѵ": "v",
+    "Ү": "Y", "ү": "y",
+    "Н": "H", "н": "h",
+    "М": "M", "м": "m",
+    "О": "O", "о": "o",
+})
 
-_PAGE_HEADER_RE = re.compile(r"LEX\s+VISIGOTHORUM|LIBER\s+IUDICIORUM", re.IGNORECASE)
 
-
-def _normalize_body_window(text: str) -> str:
-    text = text.replace("\f", "\n")
-    text = re.sub(r"(\w)-\n\s*(\w)", r"\1\2", text)
+def _normalize_text(text: str) -> str:
+    text = text.replace("\r\n", "\n").replace("\r", "\n").replace("\f", "\n")
+    text = re.sub(r"([A-Za-z])-\n\s*([A-Za-z])", r"\1\2", text)
     return text
 
 
-def _roman_like_to_int(token: str) -> int:
-    tok = token.strip().upper().replace("J", "I")
-    tok = tok.replace("VUII", "VIII")
-    tok = tok.replace("UIII", "VIII")
-    tok = tok.replace("NIL", "IIII")
-    tok = tok.replace("INI", "III")
-    tok = tok.replace("1111", "IIII")
-    tok = tok.replace("111", "III")
-    tok = tok.replace("11", "II")
+def _clean_line(line: str) -> str:
+    s = line.replace("\t", " ").strip()
+    s = re.sub(r"\s+", " ", s)
+    return s
 
-    if tok == "N":
-        tok = "II"
-    if tok == "L":
-        tok = "I"
 
+def _contains_cyrillic(s: str) -> bool:
+    return any("\u0400" <= ch <= "\u04FF" for ch in s)
+
+
+def _normalize_booktok_surface(token: str, current_book: Optional[int]) -> str:
+    raw = (token or "").strip().upper().translate(_MARKER_CYRILLIC_MAP)
+    t = raw.replace("J", "I").replace("!", "I").replace("|", "I")
+    compact = t.replace("№", "")
+
+    # confirmed OCR families seen in the source
+    if current_book == 8 and compact in {r"\11", "11", r"\1I", "1I", "I1", r"\11I"}:
+        return "VIII"
+    if current_book == 6 and compact in {r"\1", "1", "I", "V1", "V!"}:
+        return "VI"
+    if current_book == 7 and compact in {"V11", "VI1", "V1I", r"\11"}:
+        return "VII"
+
+    # very common OCR families in this source
+    if t in {"XH", "XN", "XHI", "XIII"}:
+        return "XII"
+    if t in {"X1I", "XI1", "X11", "X!I", "XI!"}:
+        return "XII"
+    if t in {"ILL", "IIL", "LII", "LLL"}:
+        return "III"
+    if current_book == 3 and t in {"11", "1I", "I1", "4"}:
+        return "III"
+    if current_book == 12 and t in {"11", "XI", "X1", "XH", "XN"}:
+        return "XII"
+    if current_book == 11 and t in {"XI", "X1", "XI1", "X!"}:
+        return "XI"
+    return t
+
+
+def _normalize_marker_line(line: str, current_book: Optional[int] = None, current_title: Optional[int] = None) -> str:
+    s = line.translate(_MARKER_CYRILLIC_MAP)
+    # If the book token is missing entirely (e.g. "\.6.1. ..."), recover it from context.
+    if current_book is not None:
+        m_missing = re.match(
+            r"^\s*[\\|/№.:;,_'`\"-]*\.\s*(?P<title>\d{1,2})\.(?P<law>\d{1,3})(?:\s*\((?P<altlaw>\d{1,3})\))?\s*\)?\.?(?P<tail>.*)$",
+            s,
+            re.IGNORECASE,
+        )
+        if m_missing:
+            title_no = int(m_missing.group('title'))
+            if current_title is None or title_no == current_title:
+                law_no = m_missing.group('law')
+                alt = m_missing.group('altlaw')
+                tail = (m_missing.group('tail') or '').lstrip()
+                rebuilt = f"{current_book}.{title_no}.{law_no}"
+                if alt:
+                    rebuilt += f"({alt})"
+                rebuilt += "."
+                if tail:
+                    rebuilt += " " + tail
+                s = rebuilt
+    # normalize the leading book token only on header-like lines
+    m = re.match(r'^(\s*\(?\s*[\|/№]*\s*)([^\s.()]+)(?=\.\d{1,2}\.)', s)
+    if m:
+        prefix, token = m.group(1), m.group(2)
+        norm_tok = _normalize_booktok_surface(token, current_book)
+        s = prefix + norm_tok + s[m.end(2):]
+    # OCR sometimes turns roman I into ! inside markers
+    s = re.sub(r'^([IVXLCDMivxlcdmXx]{1,4})!', lambda m: m.group(1) + 'I', s)
+    # normalize separated alt-number spacing: X.2.6 (7). -> X.2.6(7).
+    s = re.sub(r"(\.\d{1,3})\s+\((\d{1,3})\)\.", r"\1(\2).", s)
+    # tolerate 1-2 junk characters before a plausible header token
+    s = re.sub(r"^\s*[;:,_`\"'-]{1,2}(?=[IVXLCDM0-9A-Za-zА-Яа-я]+\.\d{1,2}\.)", "", s)
+    return s
+
+def _roman_like_to_int(token: str) -> Optional[int]:
+    tok = _normalize_booktok_surface(token, None)
+    tok = tok.replace("1", "I")
     values = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100, "D": 500, "M": 1000}
     if not tok or any(ch not in values for ch in tok):
-        raise ValueError(f"Unsupported Roman token: {token!r} -> {tok!r}")
-
+        return None
     total = 0
     prev = 0
     for ch in reversed(tok):
@@ -101,351 +242,362 @@ def _roman_like_to_int(token: str) -> int:
         else:
             total += v
             prev = v
-    return total
+    return total if total > 0 else None
 
 
-def _book_token_to_int(token: str) -> Optional[int]:
-    tok = token.strip().upper().replace("0", "O").replace("J", "I")
+def _book_token_to_int(token: str, current_book: Optional[int] = None) -> Optional[int]:
+    tok = _normalize_booktok_surface(token, current_book)
+    if tok.isdigit():
+        val = int(tok)
+        return val if 1 <= val <= 12 else None
     if tok in _ORDINAL_BOOK_MAP:
         return _ORDINAL_BOOK_MAP[tok]
-    try:
-        return _roman_like_to_int(tok)
-    except Exception:
-        return None
+    val = _roman_like_to_int(tok)
+    return val if val is not None and 1 <= val <= 12 else None
 
 
-def _is_roman_heading_token(token: str) -> bool:
-    tok = token.strip().upper()
-    if tok in {"N", "L", "11", "111", "1111", "VUII", "NIL", "INI"}:
+def _resolve_book_from_context(booktok: str, current_book: Optional[int]) -> Optional[int]:
+    parsed = _book_token_to_int(booktok, current_book)
+    if current_book is None:
+        return parsed
+    if parsed == current_book:
+        return current_book
+    tok = _normalize_booktok_surface(booktok, current_book)
+    # trust context in known catastrophic families
+    if current_book == 3 and tok in {"III", "11", "1I", "I1", "4", "ILL", "IIL", "LLL"}:
+        return 3
+    if current_book == 12 and tok in {"XII", "XH", "XN", "X1I", "XI1", "X11", "XI"}:
+        return 12
+    if any(ch in (booktok or "") for ch in "|\\/№"):
+        return current_book
+    if current_book in {2, 3} and parsed in {1, 2, 3, 4, 11}:
+        return current_book
+    if current_book == 12 and parsed in {10, 11, 12}:
+        return current_book
+    if parsed is None:
+        return current_book
+    return parsed if 1 <= parsed <= 12 else None
+
+
+def _looks_like_noise(line: str) -> bool:
+    if not line:
         return True
-    return bool(re.fullmatch(r"[IVXLCDM]+", tok))
-
-
-def _clean_line(raw) -> str:
-    s = str(raw).replace("\t", " ").rstrip()
-    s = re.sub(r"^\s*\d+\s+(?=[A-Za-zIVXivx])", "", s)
-    return s.rstrip()
-
-
-def _safe_to_text(obj) -> str:
-    if isinstance(obj, str):
-        return obj
-    try:
-        return str(obj)
-    except Exception:
-        pass
-    try:
-        return "".join(str(x) for x in obj)
-    except Exception:
-        return ""
-
-
-def _ascii_alpha_ratio(s: str) -> float:
-    if not s:
-        return 0.0
-    alpha = 0
-    total = 0
-    for ch in s:
-        total += 1
-        if ("A" <= ch <= "Z") or ("a" <= ch <= "z"):
-            alpha += 1
-    return alpha / max(1, total)
-
-
-def _looks_like_sigla_line(lower: str) -> bool:
-    sigla_hits = 0
-
-    for marker in (
-        " recc.",
-        " erv.",
-        " recc ",
-        " erv ",
-        " cod.",
-        " codd.",
-        " ms.",
-        " mss.",
-        " emend",
-        " corr.",
-        " desunt",
-        " deest",
-        " gl.",
-        " schol.",
-    ):
-        if marker in lower:
-            sigla_hits += 1
-
-    compact = lower.replace(" ", "")
-    for marker in ("r1", "r2", "e1", "e2", "v1", "v2", "b2"):
-        if marker in compact:
-            sigla_hits += 1
-
-    return sigla_hits > 0
-
-
-def _is_apparatus_or_noise(line) -> bool:
-    s = _safe_to_text(line).strip()
-    if not s:
+    if _PAGE_NUMBER_RE.match(line):
         return True
-
-    lower = s.lower()
-
-    try:
-        if _PAGE_HEADER_RE.search(s):
-            return True
-    except RuntimeError:
-        if "lex visigothorum" in lower or "liber iudiciorum" in lower:
-            return True
-
-    if lower.startswith(("lib. ", "tit. ")):
+    if _contains_cyrillic(line):
         return True
-    if "adhibui codices" in lower:
+    if _RUSSIAN_HEADING_RE.match(line):
         return True
-
-    if len(s) > 10 and "l." in s and any(ch.isdigit() for ch in s):
+    if line.startswith("og ") or "RON" in line:
         return True
-    if s.startswith(("1)", "2)", "3)", "4)", "5)", "*", "†")):
-        return True
-
-    if len(s) > 15 and _looks_like_sigla_line(lower):
-        return True
-
-    if len(s) > 30 and _ascii_alpha_ratio(s) < 0.45:
-        return True
-
     return False
 
 
-def _strip_heading_tail_noise(text: str) -> str:
-    text = re.sub(r"\s+[A-Za-z><\^*«»0-9]+$", "", text).strip()
-    return text
+def _normalize_body_text(lines: List[str]) -> str:
+    return re.sub(r"\s+", " ", clean_text(" ".join(lines))).strip()
 
 
-def _candidate_score(text: str) -> Tuple[int, int]:
-    """Лучший кандидат для duplicate-id: меньше apparatus, длиннее тело."""
-    penalty = 0
-    lower = text.lower()
-    for bad in ("adhibui codices", "recc.", "erv.", " l. ", " r 1", " e 2", " v 1"):
-        if bad in lower:
-            penalty += 1
-    return (-penalty, len(text))
+def _strip_head_labels(text: str) -> Tuple[str, bool]:
+    s = text.strip()
+    changed = False
+    while s:
+        m = _HEAD_LABEL_RE.match(s)
+        if m:
+            changed = True
+            s = s[m.end():].lstrip(" .:;,-")
+            continue
+        m = _FLAVIUS_RE.match(s)
+        if m:
+            changed = True
+            s = s[m.end():].lstrip(" .:;,-")
+            continue
+        break
+    return s.strip(), changed
 
 
-# ---------------------------------------------------------------------------
-# Parsing
-# ---------------------------------------------------------------------------
+def _looks_like_editorial_pseudotitle(line: str, next_line: Optional[str]) -> bool:
+    s = line.strip()
+    if not s:
+        return False
+    words = s.split()
+    if len(words) > 18:
+        return False
+    parts = _SENTENCE_SPLIT_RE.split(s, maxsplit=1)
+    if len(parts) >= 2:
+        first = parts[0].strip()
+        second = parts[1].strip()
+        if first and second and len(first.split()) <= 16 and _BODY_START_RE.match(second):
+            return True
+    if next_line and s.endswith('.') and len(words) <= 16 and _PSEUDOTITLE_START_RE.match(s):
+        if _BODY_START_RE.match(next_line.strip()):
+            return True
+    return False
 
-def _extract_main_legal_block(text: str) -> str:
-    starts = list(re.finditer(r"LIBER\s+PRIMUS\.", text, re.IGNORECASE))
-    body_start = None
-    for m in starts:
-        window = text[m.start():m.start() + 3500]
-        if re.search(r"(?m)^\s*1\s*,\s*1\s*,\s*1\.", window):
-            body_start = m.start()
-            break
 
-    if body_start is None:
-        raise ValueError("Could not locate the main legal text of Lex Visigothorum")
+def _strip_editorial_prefix(lines: List[str]) -> List[str]:
+    out = list(lines)
+    if not out:
+        return out
+    for i in range(min(3, len(out))):
+        cleaned, _ = _strip_head_labels(out[i])
+        out[i] = cleaned
+    while out and not out[0].strip():
+        out.pop(0)
+    if not out:
+        return out
+    next_line = out[1].strip() if len(out) > 1 else None
+    if _looks_like_editorial_pseudotitle(out[0], next_line):
+        parts = _SENTENCE_SPLIT_RE.split(out[0].strip(), maxsplit=1)
+        if len(parts) >= 2 and len(parts[0].split()) <= 16 and _BODY_START_RE.match(parts[1].strip()):
+            out[0] = parts[1].strip()
+        else:
+            out.pop(0)
+    while out and not out[0].strip():
+        out.pop(0)
+    return out
 
-    end_markers = [
-        "Chronica regum Visigothorum",
-        "CHRONICA REGUM VISIGOTHORUM",
-        "Additamentum.",
-        "Supplementa",
-    ]
-    body_end = None
-    for marker in end_markers:
-        pos = text.find(marker, body_start)
-        if pos != -1:
-            body_end = pos
-            break
 
-    if body_end is None:
-        body_end = len(text)
+def _is_reasonable_body(text: str) -> bool:
+    if not text:
+        return False
+    words = text.split()
+    if len(words) < 6:
+        return False
+    alpha = sum(ch.isalpha() for ch in text)
+    return alpha / max(1, len(text)) >= 0.55
 
-    return _normalize_body_window(text[body_start:body_end])
+
+def _title_match(line: str, current_book: Optional[int]) -> Optional[Tuple[int, int]]:
+    m = _TITLE_RE.match(line)
+    if not m:
+        return None
+    book_no = _resolve_book_from_context(m.group("booktok"), current_book)
+    if book_no is None:
+        return None
+    title_no = int(m.group("title"))
+    if not (1 <= title_no <= 60):
+        return None
+    return (book_no, title_no)
+
+
+def _law_match(line: str, current_book: Optional[int], current_title: Optional[int] = None) -> Optional[Tuple[int, int, int, Optional[int], str]]:
+    m = _NOVELLA_HEAD_RE.match(line)
+    if m:
+        book_no = _resolve_book_from_context(m.group("booktok"), current_book)
+        if book_no is None or not (1 <= book_no <= 12):
+            return None
+        title_no = int(m.group("title"))
+        law_no = int(m.group("law"))
+        if not (1 <= title_no <= 60 and 1 <= law_no <= 400):
+            return None
+        rest = (m.group("rest") or "").strip()
+        rest, _ = _strip_head_labels(rest)
+        return (book_no, title_no, law_no, None, rest)
+
+    m = _MISSING_BOOK_NOVELLA_RE.match(line)
+    if m and current_book is not None:
+        title_no = int(m.group("title"))
+        if current_title is None or title_no == current_title:
+            law_no = int(m.group("law"))
+            rest = (m.group("rest") or "").strip()
+            rest, _ = _strip_head_labels(rest)
+            return (current_book, title_no, law_no, None, rest)
+
+    m = _LAW_RE.match(line)
+    if not m:
+        m = _MISSING_BOOK_LAW_RE.match(line)
+        if m and current_book is not None:
+            title_no = int(m.group("title"))
+            if current_title is None or title_no == current_title:
+                law_no = int(m.group("law"))
+                altlaw = int(m.group("altlaw")) if m.group("altlaw") else None
+                if not (1 <= title_no <= 60 and 1 <= law_no <= 400):
+                    return None
+                rest = (m.group("rest") or "").strip()
+                rest, _ = _strip_head_labels(rest)
+                return (current_book, title_no, law_no, altlaw, rest)
+        return None
+    book_no = _resolve_book_from_context(m.group("booktok"), current_book)
+    if book_no is None or not (1 <= book_no <= 12):
+        return None
+    title_no = int(m.group("title"))
+    law_no = int(m.group("law"))
+    altlaw = int(m.group("altlaw")) if m.group("altlaw") else None
+    if not (1 <= title_no <= 60 and 1 <= law_no <= 400):
+        return None
+    rest = (m.group("rest") or "").strip()
+    rest, _ = _strip_head_labels(rest)
+    return (book_no, title_no, law_no, altlaw, rest)
+
+def _format_seg_id(source_name: str, book: int, title: int, law: int, altlaw: Optional[int]) -> str:
+    if altlaw is not None:
+        return f"{source_name}_{book}.{title}.{law}({altlaw})"
+    return f"{source_name}_{book}.{title}.{law}"
+
+
+def _sort_key(seg_id: str) -> Tuple[int, int, int, int]:
+    tail = seg_id.split("_", 1)[1]
+    m = re.match(r"^(\d+)\.(\d+)\.(\d+)(?:\((\d+)\))?$", tail)
+    if not m:
+        return (999, 999, 999, 999)
+    return tuple(int(m.group(i) or 0) for i in range(1, 5))
 
 
 def segment_lex_visigothorum(text: str, source_name: str) -> List[Tuple[str, str]]:
-    """
-    Структурная сегментация нового OCR-издания Lex Visigothorum.
+    text = _normalize_text(text)
+    raw_lines = text.split("\n")
 
-    Опорная логика:
-    - находим основной блок текста законов;
-    - отслеживаем LIBER -> TITULUS -> отдельную lex;
-    - строим id как <source_name>_<book>.<title>.<law>.
-    """
-    legal_text = _extract_main_legal_block(text)
-    lines = legal_text.splitlines()
-
+    segments: List[Tuple[str, str]] = []
     current_book: Optional[int] = None
     current_title: Optional[int] = None
-    current_segment_id: Optional[str] = None
-    current_parts: List[str] = []
-    waiting_for_title_after_pure_roman = False
-
-    raw_segments: List[Tuple[str, str]] = []
+    current_law: Optional[int] = None
+    current_altlaw: Optional[int] = None
+    current_lines: List[str] = []
+    started = False
 
     def flush_current() -> None:
-        nonlocal current_segment_id, current_parts, waiting_for_title_after_pure_roman
-        if current_segment_id is None:
+        nonlocal current_law, current_altlaw, current_lines
+        if current_book is None or current_title is None or current_law is None:
+            current_law = None
+            current_altlaw = None
+            current_lines = []
             return
-        joined = clean_text(" ".join(part for part in current_parts if part))
-        if len(joined.split()) >= 5:
-            raw_segments.append((current_segment_id, joined))
-        current_segment_id = None
-        current_parts = []
-        waiting_for_title_after_pure_roman = False
+        key = (current_book, current_title, current_law)
+        body_lines = _strip_editorial_prefix(current_lines)
+        body = _normalize_body_text(body_lines)
+        if key in EXPECTED_ID_SET and _is_reasonable_body(body):
+            seg_id = _format_seg_id(source_name, current_book, current_title, current_law, current_altlaw)
+            segments.append((seg_id, body))
+        current_law = None
+        current_altlaw = None
+        current_lines = []
 
-    for raw in lines:
+    for raw in raw_lines:
         line = _clean_line(raw)
-        if not line.strip():
+        if not line:
             continue
 
-        m = _LIBER_RE.match(line)
-        if m:
-            flush_current()
-            current_book = _book_token_to_int(m.group(1))
-            current_title = None
-            continue
+        marker_line = _normalize_marker_line(line, current_book, current_title)
 
-        m = _TITULUS_RE.match(line)
-        if m:
-            flush_current()
-            try:
-                current_title = _roman_like_to_int(m.group(1))
-            except Exception:
+        m_b = _BOOK_RE.match(marker_line)
+        if m_b:
+            book_no = _book_token_to_int(m_b.group("book"), current_book)
+            if book_no == 1:
+                started = True
+            if started:
+                flush_current()
+                if book_no is not None and 1 <= book_no <= 12:
+                    current_book = book_no
+                else:
+                    current_book = None
                 current_title = None
             continue
 
-        if current_book is None or current_title is None:
+        if not started:
             continue
 
-        m = _NUMERIC_LEX_RE.match(line)
-        if m:
-            try:
-                book_no = int(m.group("book")) if m.group("book").isdigit() else _roman_like_to_int(
-                    m.group("book").replace("1", "I").replace("l", "I")
-                )
-                title_no = int(m.group("title"))
-                law_no = int(m.group("law"))
-            except Exception:
-                book_no = title_no = law_no = None
-
-            if (
-                book_no == current_book
-                and title_no == current_title
-                and law_no is not None
-                and 1 <= law_no <= 200
-            ):
-                flush_current()
-                rest = m.group("rest").strip()
-                m_head = _INLINE_ROMAN_HEADING_RE.match(rest)
-                if m_head and _is_roman_heading_token(m_head.group("roman")):
-                    rest = m_head.group("rest").strip()
-                current_segment_id = f"{source_name}_{current_book}.{current_title}.{law_no}"
-                if rest:
-                    current_parts.append(_strip_heading_tail_noise(rest))
-                continue
-
-        m = _PURE_ROMAN_HEADING_RE.match(line)
-        if m and _is_roman_heading_token(m.group("roman")):
-            try:
-                law_no = _roman_like_to_int(m.group("roman"))
-            except Exception:
-                law_no = None
-            if law_no is not None and 1 <= law_no <= 200:
-                flush_current()
-                current_segment_id = f"{source_name}_{current_book}.{current_title}.{law_no}"
-                waiting_for_title_after_pure_roman = True
-                continue
-
-        m = _INLINE_ROMAN_HEADING_RE.match(line)
-        if m and _is_roman_heading_token(m.group("roman")):
-            try:
-                law_no = _roman_like_to_int(m.group("roman"))
-            except Exception:
-                law_no = None
-
-            rest = m.group("rest").strip()
-            if law_no is not None and 1 <= law_no <= 200 and len(rest.split()) >= 2:
-                flush_current()
-                current_segment_id = f"{source_name}_{current_book}.{current_title}.{law_no}"
-                current_parts.append(_strip_heading_tail_noise(rest))
-                waiting_for_title_after_pure_roman = False
-                continue
-
-        if _is_apparatus_or_noise(line):
+        law = _law_match(marker_line, current_book, current_title)
+        if law is not None:
+            book_no, title_no, law_no, altlaw, rest = law
+            flush_current()
+            current_book = book_no
+            current_title = title_no
+            current_law = law_no
+            current_altlaw = altlaw
+            current_lines = [rest] if rest else []
             continue
 
-        if waiting_for_title_after_pure_roman and current_segment_id is not None:
-            current_parts.append(_strip_heading_tail_noise(line))
-            waiting_for_title_after_pure_roman = False
+        title = _title_match(marker_line, current_book)
+        if title is not None:
+            book_no, title_no = title
+            flush_current()
+            current_book = book_no
+            current_title = title_no
             continue
 
-        if current_segment_id is not None:
-            current_parts.append(line.strip())
+        if _looks_like_noise(line):
+            continue
+
+        if _FRAGMENTA_RE.match(marker_line):
+            flush_current()
+            current_book = None
+            current_title = None
+            continue
+
+        if _TIT_SHORT_RE.match(marker_line):
+            if current_law is not None and len(current_lines) <= 1:
+                current_lines.append(line)
+            continue
+
+        if current_law is not None:
+            current_lines.append(line)
 
     flush_current()
 
-    dedup: "OrderedDict[str, str]" = OrderedDict()
-    for seg_id, seg_text in raw_segments:
-        if seg_id not in dedup:
-            dedup[seg_id] = seg_text
+    # Bridge a few still-missing expected slots using alt-numbered physical ids.
+    produced_base_by_title: Dict[Tuple[int, int], Set[int]] = {}
+    for seg_id, _seg_text in segments:
+        tail = seg_id.split("_", 1)[1]
+        m = re.match(r"^(\d+)\.(\d+)\.(\d+)(?:\((\d+)\))?$", tail)
+        if not m:
             continue
-        if _candidate_score(seg_text) > _candidate_score(dedup[seg_id]):
+        b, t, l = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        produced_base_by_title.setdefault((b, t), set()).add(l)
+
+    bridged: List[Tuple[str, str]] = []
+    for seg_id, seg_text in segments:
+        tail = seg_id.split("_", 1)[1]
+        m = re.match(r"^(\d+)\.(\d+)\.(\d+)\((\d+)\)$", tail)
+        if not m:
+            continue
+        b, t, l, alt = map(int, m.groups())
+        expected = set(EXPECTED_IDS_BY_TITLE.get((b, t), []))
+        present = produced_base_by_title.get((b, t), set())
+        if alt in expected and alt not in present:
+            bridged.append((f"{source_name}_{b}.{t}.{alt}", seg_text))
+            present.add(alt)
+
+    if bridged:
+        segments.extend(bridged)
+
+    # In title IV.2 the physical source ends with IV.2.19(20); there is no separate IV.2.20.
+    if any(seg_id == f"{source_name}_4.2.19(20)" for seg_id, _ in segments):
+        segments = [
+            (seg_id, seg_text)
+            for seg_id, seg_text in segments
+            if seg_id != f"{source_name}_4.2.20"
+        ]
+
+    dedup: "OrderedDict[str, str]" = OrderedDict()
+    for seg_id, seg_text in segments:
+        prev = dedup.get(seg_id)
+        if prev is None or len(seg_text) > len(prev):
             dedup[seg_id] = seg_text
 
-    segments = list(dedup.items())
-    return validate_segments(segments, source_name)
+    items = list(dedup.items())
+    items.sort(key=lambda x: _sort_key(x[0]))
+    return validate_segments(items, source_name)
 
-
-# ---------------------------------------------------------------------------
-# Unified entry point
-# ---------------------------------------------------------------------------
 
 def segment_lex_visigothorum_unified(source_file, source_name):
-    """
-    Unified segmenter for Lex Visigothorum.
-
-    Parameters
-    ----------
-    source_file : str | Path
-        Path to the source file.
-    source_name : str
-        Canonical source name, e.g. "LexVisigoth".
-
-    Returns
-    -------
-    list[tuple[str, str]]
-        List of (segment_id, segment_text) pairs.
-    """
-    text = read_source_file(source_file)
-    return segment_lex_visigothorum(text, source_name)
+    return segment_lex_visigothorum(read_source_file(source_file), source_name)
 
 
 def main() -> None:
     candidates = [
-        Path("data/legesvisigothor00zeumgoog_text.txt"),
-        Path("legesvisigothor00zeumgoog_text.txt"),
-        Path("/mnt/data/legesvisigothor00zeumgoog_text.txt"),
+        Path("data/Lex_visigothorum_lat-1.txt"),
+        Path("Lex_visigothorum_lat-1.txt"),
+        Path("/mnt/data/Lex_visigothorum_lat-1.txt"),
+        Path("/mnt/data/Lex_visigothorum_lat-1(1).txt"),
     ]
-
     src = next((p for p in candidates if p.exists()), None)
     if src is None:
         print("Source file not found.")
         raise SystemExit(1)
-
-    segs = segment_lex_visigothorum_unified(src, "LexVisigoth")
-    print(f"LexVisigoth: {len(segs)} segments")
-
-    if segs:
-        print("First 3 segments:")
-        for sid, txt in segs[:3]:
-            print(f"  {sid}: {txt[:120]}")
-
-        print("Last 3 segments:")
-        for sid, txt in segs[-3:]:
-            print(f"  {sid}: {txt[:120]}")
+    segs = segment_lex_visigothorum_unified(src, "LexVisigothorum")
+    print(f"LexVisigothorum: {len(segs)} segments")
+    for sid, txt in segs[:5]:
+        print(f"  {sid}: {txt[:160]}")
 
 
 if __name__ == "__main__":

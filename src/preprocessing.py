@@ -1,7 +1,7 @@
 """
 Step 1-2: Text loading, normalization, and stemming-oriented preprocessing.
 
-Public interface kept compatible with the current pipeline:
+Unified public interface used by the current pipeline:
 - normalize_latin(text)
 - tokenize_latin(text)
 - LatinLemmatizer(use_collatinus=...)
@@ -9,9 +9,11 @@ Public interface kept compatible with the current pipeline:
 - load_docx(path)
 - load_txt(path)
 
-Internal changes:
+Key properties:
 - no pycollatinus dependency
 - local mode detection per segment
+- unified normalization contract
+- mode-aware stemming
 - unified graphic normalization (j->i, v->u)
 - stronger rule-based stemming with irregular Latin forms
 - stronger OCR/apparatus filtering
@@ -172,9 +174,27 @@ _ROMAN_RE = re.compile(
 )
 
 _TOKEN_RE = re.compile(r"[a-zà-ÿ]+(?:['’][a-zà-ÿ]+)?|\d+", re.IGNORECASE)
-_ENCLITIC_RE = re.compile(r"^([a-zà-ÿ]{3,})(que|ue|ve|ne)$", re.IGNORECASE)
+# Split only productive enclitics that are safe for retrieval purposes.
+# We intentionally do NOT split final -ne, because it creates false breaks
+# inside ordinary lexical forms like "condicione" -> "condicio" + "ne".
+_ENCLITIC_RE = re.compile(r"^([a-zà-ÿ]{2,}?)(que|ue|ve)$", re.IGNORECASE)
 _LETTER_RE = re.compile(r"[a-zà-ÿ]", re.IGNORECASE)
 
+# Lexicalized forms that should stay whole and not be mechanically split as base + enclitic.
+_NO_ENCLITIC_SPLIT = {
+    "atque",
+    "neque",
+    "quoque",
+    "itaque",
+    "namque",
+    "ubique",
+    "undique",
+    "usque",
+}
+
+# =============================================================================
+# Text loading
+# =============================================================================
 
 def _load_docx_fast(path: Path) -> str:
     with zipfile.ZipFile(str(path)) as z:
@@ -230,6 +250,9 @@ def basic_cleanup(text: str) -> str:
     text = re.sub(r"\s+", " ", text).strip()
     return text
 
+# =============================================================================
+# Tokenization / unified compatibility API
+# =============================================================================
 
 def tokenize_text(text: str) -> List[str]:
     if not text:
@@ -237,6 +260,27 @@ def tokenize_text(text: str) -> List[str]:
     return [m.group(0) for m in _TOKEN_RE.finditer(text)]
 
 
+def _normalize_uv_latin(token: str) -> str:
+    """
+    Historical Latin normalization:
+    collapse graphic u/v variation to a unified u-based representation.
+
+    Examples:
+        venerit  -> uenerit
+        privato  -> priuato
+        novum    -> nouum
+        uidentur -> uidentur
+    """
+    t = token.lower()
+    return t.replace("v", "u")
+
+
+def normalize_latin(text: str) -> str:
+    cleaned = basic_cleanup(text).lower()
+    cleaned = _strip_accents(cleaned)
+    cleaned = cleaned.replace("j", "i")
+    cleaned = cleaned.replace("æ", "ae").replace("œ", "oe")
+    cleaned = _normalize_uv_latin(cleaned)
 def _normalize_graphics(text: str) -> str:
     text = text.lower()
     text = _strip_accents(text)
@@ -257,10 +301,18 @@ def tokenize_latin(text: str) -> List[str]:
     tokens = tokenize_text(text)
     result = []
     for tok in tokens:
+        lower = tok.lower()
+        if lower in _NO_ENCLITIC_SPLIT:
+            result.append(lower)
+            continue
         lower = _normalize_graphics(tok)
         m = _ENCLITIC_RE.match(lower)
-        if m and m.group(2) in {"que", "ue", "ve", "ne"}:
-            result.append(m.group(1))
+        if m and m.group(2) in {"que", "ue", "ve"}:
+            base = m.group(1)
+            enclitic = m.group(2)
+            if base:
+                result.append(base)
+            result.append(enclitic)
         else:
             result.append(lower)
     return [t for t in result if t]
@@ -433,6 +485,9 @@ def detect_mode(tokens: List[str]) -> Tuple[str, Dict[str, float]]:
 
     return "unknown", scores
 
+# =============================================================================
+# Mode-aware normalization
+# =============================================================================
 
 def normalize_token_latin(token: str) -> str:
     t = _normalize_graphics(token)
