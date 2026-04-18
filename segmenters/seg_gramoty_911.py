@@ -27,6 +27,7 @@ from .seg_common import read_source_file, validate_segments
 _DOC_NUM_RE = re.compile(r"^\s*(\d+(?:\s+bis)?)\s*$", re.IGNORECASE)
 _DATE_RE = re.compile(r"\b(8\d{2}|9\d{2}|10\d{2}|1100)\b")
 _CENTURY_RE = re.compile(r"^\s*Segle\s+[xivlcdm]+\s*$", re.IGNORECASE)
+_INDEX_HEADING_RE = re.compile(r"^\s*ÍNDEX DE\b", re.IGNORECASE)
 
 # Архивно-издательский аппарат
 _EDITORIAL_PATTERNS = [
@@ -277,6 +278,9 @@ def _extract_latin_text_911(doc_lines: List[str]) -> str:
     for line in doc_lines[start_idx:]:
         stripped = line.strip()
 
+        if _INDEX_HEADING_RE.match(stripped):
+            break
+        
         if _should_skip_after_start(stripped):
             continue
 
